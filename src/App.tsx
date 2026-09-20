@@ -81,6 +81,7 @@ import {
 } from "./lib/api.js";
 import { playSound, type SoundType } from "./lib/sounds.js";
 import { PolicyModals, type PolicyModalType } from "./components/PolicyModals.js";
+import { PrivacyNoticeBanner } from "./components/PrivacyNoticeBanner.js";
 import { JarvisWidget } from "./components/JarvisWidget.js";
 import { AdminPanel } from "./components/AdminPanel.js";
 import { GameAnalysisView } from "./components/GameAnalysisView.js";
@@ -255,6 +256,7 @@ export function App() {
 
   return (
     <>
+      <a className="skip-link" href="#main-content">Skip to main content</a>
       <div className="app-shell">
         <aside className="sidebar">
           <div className="sidebar-brand">
@@ -296,7 +298,7 @@ export function App() {
           </button>
         </aside>
 
-        <main className="main-panel">
+        <main className="main-panel" id="main-content">
           {/* Site Announcement Banner */}
           {announcements.length > 0 && view === "dashboard" && (
             <div className="announcement-banner">
@@ -357,6 +359,7 @@ export function App() {
         onOpenAdminPanel={() => setView("admin")}
       />
 
+      <PrivacyNoticeBanner onOpenPolicy={setPolicyModal} />
       <PolicyModals
         type={policyModal}
         onClose={() => setPolicyModal(null)}
@@ -548,6 +551,18 @@ function Dashboard({
           <span>•</span>
           <button type="button" className="text-link" onClick={() => onOpenPolicy("terms")}>
             Terms
+          </button>
+          <span>•</span>
+          <button type="button" className="text-link" onClick={() => onOpenPolicy("cookies")}>
+            Cookies & Storage
+          </button>
+          <span>•</span>
+          <button type="button" className="text-link" onClick={() => onOpenPolicy("refunds")}>
+            Refunds
+          </button>
+          <span>•</span>
+          <button type="button" className="text-link" onClick={() => onOpenPolicy("accessibility")}>
+            Accessibility
           </button>
           <span>•</span>
           <button type="button" className="text-link" onClick={() => onOpenPolicy("guidelines")}>
@@ -1749,6 +1764,18 @@ function SettingsView({
           </button>
           <button className="secondary" onClick={() => onOpenPolicy("privacy")}>
             <Shield size={16} /> Privacy Policy
+          </button>
+          <button className="secondary" onClick={() => onOpenPolicy("cookies")}>
+            <Shield size={16} /> Cookies & Storage
+          </button>
+          <button className="secondary" onClick={() => onOpenPolicy("accessibility")}>
+            <MonitorSmartphone size={16} /> Accessibility
+          </button>
+          <button className="secondary" onClick={() => onOpenPolicy("refunds")}>
+            <BadgeInfo size={16} /> Refund Policy
+          </button>
+          <button className="secondary" onClick={() => onOpenPolicy("licenses")}>
+            <BookOpen size={16} /> Licenses & Assets
           </button>
           <button className="secondary" onClick={() => onOpenPolicy("report")}>
             <AlertTriangle size={16} /> Report a Problem
