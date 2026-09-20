@@ -1,74 +1,31 @@
-import type { Announcement, AuditLog, AuthResponse, GameRecord, LeaderboardRow, PublicUser, ReportItem, SystemAnalytics, UserSettings } from "../../shared/types.js";
-import { supabase } from "./supabase.js";
+import type {
+  Announcement,
+  AuditLog,
+  AuthResponse,
+  GameRecord,
+  LeaderboardRow,
+  PublicUser,
+  ReportItem,
+  SystemAnalytics,
+  UserSettings
+} from "../../shared/types.js";
 
 const tokenKey = "chess-arena-token";
-const apiBase = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ?? "";
-const defaultSettings: UserSettings = { boardTheme: "emerald", pieceStyle: "classic", soundEnabled: true, soundVolume: 0.7, legalHints: true, autoFlip: false, reducedMotion: false, animationSpeed: 180, botDelayMs: 500, jarvisEnabled: true };
+const apiBase = ((import.meta as any).env?.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ?? "";
 
 export function getApiBaseUrl() { return apiBase; }
 export function getToken() { return sessionStorage.getItem(tokenKey); }
 export function setToken(token: string | null) { if (token) sessionStorage.setItem(tokenKey, token); else sessionStorage.removeItem(tokenKey); }
 
-function toPublicUser(p: any, email: string): PublicUser {
-  const rating = p.rating ?? 1000;
-  return { id: p.id, email, username: p.username, role: p.role === "owner" ? "owner" : "user", rating, formatRatings: { bullet: rating, blitz: rating, rapid: rating }, puzzleRating: p.puzzle_rating ?? 1000, bestRating: p.best_rating ?? rating, streak: 1, xp: p.xp ?? 0, level: p.level ?? 1, isBanned: p.is_banned ?? false, banReason: p.ban_reason ?? undefined, birthYear: p.birth_year ?? undefined, dailyChallenge: { target: 2, completed: 0, lastDate: new Date().toISOString().slice(0, 10) }, blockedUsers: [], wins: p.wins ?? 0, losses: p.losses ?? 0, draws: p.draws ?? 0, createdAt: p.created_at ?? new Date().toISOString(), settings: { ...defaultSettings, ...(p.settings ?? {}) } };
+export async function signup(email: string, password: string, username: string, birthYear?: number) {
+  return request<AuthResponse>("/api/signup", { method: "POST", body: JSON.stringify({ email, password, username, birthYear }) });
 }
-
-async function getProfile(userId: string) {
-  const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).single();
-  if (error) throw new Error(error.message);
-  return data;
+export async function login(loginName: string, password: string) {
+  return request<AuthResponse>("/api/login", { method: "POST", body: JSON.stringify({ login: loginName, password }) });
 }
-
-export async function signup(email: string, password: string, username: string, birthYear?: number): Promise<AuthResponse> {
-  const { data, error } = await supabase.auth.signUp({ email: email.trim().toLowerCase(), password, options: { data: { username: username.trim(), birthYear } } });
-  if (error) throw new Error(error.message);
-  if (!data.user || !data.session) throw new Error("Account created. Check your email to confirm your account, then log in.");
-  const profile = await getProfile(data.user.id);
-  setToken(data.session.access_token);
-  return { token: data.session.access_token, user: toPublicUser(profile, data.user.email ?? email) };
-}
-
-export async function login(loginName: string, password: string): Promise<AuthResponse> {
-  let email = loginName.trim();
-  if (!email.includes("@")) {
-    const { data, error } = await supabase.from("profiles").select("email").eq("username", email).maybeSingle();
-    if (error) throw new Error(error.message);
-    if (!data?.email) throw new Error("Email, username, or password is incorrect.");
-    email = data.email;
-  }
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error || !data.user || !data.session) throw new Error(error?.message ?? "Login failed.");
-  const profile = await getProfile(data.user.id);
-  if (profile.is_banned) { await supabase.auth.signOut(); setToken(null); throw new Error(`Your account has been suspended: ${profile.ban_reason ?? "Violation of terms."}`); }
-  setToken(data.session.access_token);
-  return { token: data.session.access_token, user: toPublicUser(profile, data.user.email ?? email) };
-}
-
-export async function currentSession() {
-  const { data: { user }, error } = await supabase.auth.getUser();
-  if (error || !user) throw new Error("Not signed in.");
-  const profile = await getProfile(user.id);
-  const { data: { session } } = await supabase.auth.getSession();
-  if (session?.access_token) setToken(session.access_token);
-  return { user: toPublicUser(profile, user.email ?? "") };
-}
-
-export async function logout() { await supabase.auth.signOut(); setToken(null); window.dispatchEvent(new CustomEvent("chess-arena:logout")); return { ok: true as const }; }
-
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const headers = new Headers(init.headers); headers.set("Content-Type", "application/json");
-  const { data: { session } } = await supabase.auth.getSession();
-  if (session?.access_token) headers.set("Authorization", `Bearer ${session.access_token}`);
-  const response = await fetch(`${apiBase}${path}`, { ...init, headers, credentials: "omit" });
-  const payload = (await response.json().catch(() => ({}))) as T & { error?: string };
-  // A backend/API failure must not sign the user out of the Supabase session.
-  // Supabase is the source of truth for authentication; the API can be temporarily unavailable.
-  if (!response.ok) throw new Error(payload.error ?? `Request failed (${response.status}).`);
-  return payload;
-}
-
-export async function deleteAccount() { return request<{ ok: true }>("/api/account/delete", { method: "POST" }); }
+export async function currentSession() { return request<{ user: PublicUser }>("/api/session"); }
+export async function logout() { await request<{ ok: true }>("/api/logout", { method: "POST" }); setToken(null); }
+export async function deleteAccount() { const result = await request<{ ok: true }>("/api/account/delete", { method: "POST" }); setToken(null); return result; }
 export async function reportPlayer(target: string, reason: string, details?: string) { return request<{ ok: true }>("/api/report", { method: "POST", body: JSON.stringify({ target, reason, details }) }); }
 export async function blockPlayer(targetUsername: string) { return request<{ user: PublicUser }>("/api/block", { method: "POST", body: JSON.stringify({ targetUsername }) }); }
 export async function getLeaderboard() { return request<{ rows: LeaderboardRow[] }>("/api/leaderboard"); }
@@ -87,3 +44,32 @@ export async function updateReportStatus(reportId: string, status: "resolved" | 
 export async function getAdminAnalytics() { return request<{ analytics: SystemAnalytics }>("/api/admin/analytics"); }
 export async function getAuditLogs() { return request<{ auditLogs: AuditLog[] }>("/api/admin/audit-logs"); }
 export async function createAnnouncement(title: string, content: string) { return request<{ announcement: Announcement }>("/api/admin/announcements", { method: "POST", body: JSON.stringify({ title, content }) }); }
+
+export type OnlineGame = {
+  id: string; code: string | null; status: "waiting" | "active" | "finished" | "cancelled"; mode: "random" | "friend";
+  white_player: string; black_player: string | null; turn: "white" | "black"; fen: string; move_number: number;
+  result: string | null; created_at: string; started_at: string | null; ended_at: string | null;
+};
+
+async function supabaseRequest<T>(path: string, body?: unknown): Promise<T> {
+  const url = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/rpc/${path}`;
+  const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+  const token = getToken();
+  const response = await fetch(url, { method: "POST", headers: { apikey: key, Authorization: `Bearer ${token ?? key}`, "Content-Type": "application/json" }, body: JSON.stringify(body ?? {}) });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) throw new Error((payload as { message?: string; hint?: string } | null)?.message ?? "Online request failed.");
+  return payload as T;
+}
+
+export async function joinRandomMatch(rating = 1000) { return supabaseRequest<OnlineGame | null>("join_random_match", { p_rating: rating }); }
+export async function createFriendGame() { return supabaseRequest<OnlineGame>("create_friend_game"); }
+export async function joinFriendGame(code: string) { return supabaseRequest<OnlineGame>("join_friend_game", { p_code: code }); }
+
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers); headers.set("Content-Type", "application/json");
+  const token = getToken(); if (token) headers.set("Authorization", `Bearer ${token}`);
+  const response = await fetch(`${apiBase}${path}`, { ...init, headers, credentials: "include" });
+  const payload = (await response.json().catch(() => ({}))) as T & { error?: string };
+  if (response.status === 401) { setToken(null); window.dispatchEvent(new CustomEvent("chess-arena:logout")); }
+  if (!response.ok) throw new Error(payload.error ?? "Request failed."); return payload;
+}
