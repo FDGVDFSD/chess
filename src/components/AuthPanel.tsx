@@ -1,13 +1,17 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Calendar, Crown, Lock, Mail, Shield, UserPlus } from "lucide-react";
-import { login, setToken, signup } from "../lib/api.js";
+import { login, requestPasswordReset, setToken, signup, updateRecoveredPassword } from "../lib/api.js";
 import type { PublicUser } from "../../shared/types.js";
 import { PolicyModals, type PolicyModalType } from "./PolicyModals.js";
 
-interface AuthPanelProps { onAuthed: (user: PublicUser) => void; }
+interface AuthPanelProps {
+  onAuthed: (user: PublicUser) => void;
+  passwordRecovery?: boolean;
+  onRecoveryComplete?: () => void;
+}
 
-export function AuthPanel({ onAuthed }: AuthPanelProps) {
-  const [mode, setMode] = useState<"login" | "signup">("signup");
+export function AuthPanel({ onAuthed, passwordRecovery = false, onRecoveryComplete }: AuthPanelProps) {
+  const [mode, setMode] = useState<"login" | "signup" | "forgot" | "recovery">(passwordRecovery ? "recovery" : "signup");
   const [signupStep, setSignupStep] = useState<1 | 2 | 3>(1);
   const [birthYear, setBirthYear] = useState<number>(2005);
   const [email, setEmail] = useState("");
@@ -17,11 +21,52 @@ export function AuthPanel({ onAuthed }: AuthPanelProps) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [policyModal, setPolicyModal] = useState<PolicyModalType>(null);
+  const [success, setSuccess] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const currentYear = new Date().getFullYear();
+
+  useEffect(() => {
+    if (passwordRecovery) {
+      setMode("recovery");
+      setError("");
+      setSuccess("");
+    }
+  }, [passwordRecovery]);
   const isUnder13 = birthYear > currentYear - 13;
 
   async function submit() {
     setError("");
+    setSuccess("");
+
+    if (mode === "forgot") {
+      if (!email.trim()) { setError("Enter the email address for your account."); return; }
+      setBusy(true);
+      try {
+        await requestPasswordReset(email);
+        setSuccess("Password reset email sent. Open the newest email and click Reset password.");
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Could not send password reset email.");
+      } finally { setBusy(false); }
+      return;
+    }
+
+    if (mode === "recovery") {
+      if (newPassword !== confirmPassword) { setError("Passwords do not match."); return; }
+      setBusy(true);
+      try {
+        await updateRecoveredPassword(newPassword);
+        setNewPassword("");
+        setConfirmPassword("");
+        setSuccess("Password changed successfully. You can now log in with your new password.");
+        window.history.replaceState({}, document.title, window.location.pathname);
+        onRecoveryComplete?.();
+        setMode("login");
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Could not update your password.");
+      } finally { setBusy(false); }
+      return;
+    }
     if (mode === "signup") {
       if (signupStep === 1) {
         if (!birthYear || birthYear < 1920 || birthYear > currentYear) { setError("Please select a valid birth year."); return; }
@@ -59,11 +104,29 @@ export function AuthPanel({ onAuthed }: AuthPanelProps) {
           </div>
         </section>
         <section className="auth-card">
-          <div className="segmented">
-            <button className={mode === "signup" ? "active" : ""} onClick={() => { setMode("signup"); setSignupStep(1); setError(""); }}><UserPlus size={16} /> Sign up</button>
-            <button className={mode === "login" ? "active" : ""} onClick={() => { setMode("login"); setError(""); }}><Lock size={16} /> Log in</button>
-          </div>
-          {mode === "signup" ? (
+          {mode !== "recovery" && (
+            <div className="segmented">
+              <button className={mode === "signup" ? "active" : ""} onClick={() => { setMode("signup"); setSignupStep(1); setError(""); setSuccess(""); }}><UserPlus size={16} /> Sign up</button>
+              <button className={mode === "login" || mode === "forgot" ? "active" : ""} onClick={() => { setMode("login"); setError(""); setSuccess(""); }}><Lock size={16} /> Log in</button>
+            </div>
+          )}
+          {mode === "recovery" ? (
+            <form onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+              <h2>Choose a new password</h2>
+              <p className="muted">Enter a new password for your Chess Arena account.</p>
+              <label>New Password<span className="input-shell"><Lock size={16} /><input type="password" minLength={8} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} autoComplete="new-password" required /></span></label>
+              <label>Confirm Password<span className="input-shell"><Lock size={16} /><input type="password" minLength={8} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} autoComplete="new-password" required /></span></label>
+              <button className="primary full" disabled={busy} type="submit">{busy ? "Updating..." : "Update Password"}</button>
+            </form>
+          ) : mode === "forgot" ? (
+            <form onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+              <h2>Reset your password</h2>
+              <p className="muted">We'll email you a secure password-reset link.</p>
+              <label>Email<span className="input-shell"><Mail size={16} /><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required /></span></label>
+              <button className="primary full" disabled={busy} type="submit">{busy ? "Sending..." : "Send Reset Email"}</button>
+              <button className="text-link" type="button" onClick={() => { setMode("login"); setError(""); setSuccess(""); }}>Back to login</button>
+            </form>
+          ) : mode === "signup" ? (
             <form onSubmit={(event) => { event.preventDefault(); void submit(); }}>
               <div className="step-row"><span className={signupStep === 1 ? "step active" : "step"}>1</span><span className={signupStep === 2 ? "step active" : "step"}>2</span><span className={signupStep === 3 ? "step active" : "step"}>3</span></div>
               {signupStep === 1 && <><label>Select Birth Year<span className="input-shell"><Calendar size={16} /><select value={birthYear} onChange={(e) => setBirthYear(Number(e.target.value))} className="setting-item select inline-select">{Array.from({ length: 90 }, (_, i) => currentYear - i).map((yr) => <option key={yr} value={yr}>{yr}</option>)}</select></span></label>{isUnder13 && <div className="age-notice"><Shield size={16} /><span><strong>Under 13 Account Notice:</strong> Neutral age verification active. Data collection is strictly minimized in compliance with U.S. privacy guidelines.</span></div>}</>}
@@ -76,9 +139,11 @@ export function AuthPanel({ onAuthed }: AuthPanelProps) {
               <label>Email<span className="input-shell"><Mail size={16} /><input type="email" value={loginName} onChange={(event) => setLoginName(event.target.value)} autoComplete="email" required /></span></label>
               <label>Password<span className="input-shell"><Lock size={16} /><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required /></span></label>
               <button className="primary full" disabled={busy} type="submit">{busy ? "Signing in..." : "Log in"}</button>
+              <button className="text-link" type="button" onClick={() => { setMode("forgot"); setError(""); setSuccess(""); setEmail(loginName); }}>Forgot password?</button>
             </form>
           )}
           {error ? <p className="form-error" role="alert">{error}</p> : null}
+          {success ? <p className="form-success" role="status">{success}</p> : null}
         </section>
       </main>
       <PolicyModals type={policyModal} onClose={() => setPolicyModal(null)} />
