@@ -118,6 +118,7 @@ export interface GameSnapshot {
   timeControl?: TimeControl;
   whiteTimeRemainingMs?: number;
   blackTimeRemainingMs?: number;
+  turnStartedAt?: string;
   status: GameStatus;
   fen: string;
   turn: Side;
