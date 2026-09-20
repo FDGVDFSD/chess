@@ -109,6 +109,12 @@ export async function signup(
   if (password.length < 6) {
     throw new Error("Password must be at least 6 characters.");
   }
+  if (birthYear) {
+    const currentYear = new Date().getFullYear();
+    if (birthYear > currentYear - 13) {
+      throw new Error("Chess Arena accounts are currently available to users age 13 or older.");
+    }
+  }
 
   const { data, error } = await supabase.auth.signUp({
     email: cleanEmail,
