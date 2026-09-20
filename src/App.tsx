@@ -133,11 +133,20 @@ function applyAnimationVars(settings: UserSettings) {
   }
 }
 
+function isPasswordRecoveryUrl() {
+  const query = new URLSearchParams(window.location.search);
+  const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  return (
+    window.location.pathname === "/reset-password" ||
+    query.get("recovery") === "1" ||
+    query.get("type") === "recovery" ||
+    hash.get("type") === "recovery"
+  );
+}
+
 export function App() {
   const [user, setUser] = useState<PublicUser | null>(null);
-  const [passwordRecovery, setPasswordRecovery] = useState(
-    () => new URLSearchParams(window.location.search).get("recovery") === "1"
-  );
+  const [passwordRecovery, setPasswordRecovery] = useState(() => isPasswordRecoveryUrl());
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<View>("dashboard");
   const [policyModal, setPolicyModal] = useState<PolicyModalType>(null);
@@ -150,7 +159,7 @@ export function App() {
   const [analyzingGame, setAnalyzingGame] = useState<GameRecord | null>(null);
 
   useEffect(() => {
-    const recoveryHint = new URLSearchParams(window.location.search).get("recovery") === "1";
+    const recoveryHint = isPasswordRecoveryUrl();
 
     const { data: authListener } = supabase.auth.onAuthStateChange((event) => {
       if (event === "PASSWORD_RECOVERY") {
