@@ -30,8 +30,13 @@ import {
 } from "lucide-react";
 import { io, type Socket } from "socket.io-client";
 import { getGameResult, sideFromTurn, tryMove } from "../shared/chess.js";
-import { selectBotMove } from "../shared/bot.js";
-import { analyzeWithJarvis } from "./lib/jarvisAI.js";
+import { isSupabaseConfigured } from "./lib/supabase.js";
+import {
+  createFriendRoomSupabase,
+  joinFriendRoomSupabase,
+  submitOnlineMoveSupabase,
+  subscribeToOnlineGameRealtime
+} from "./lib/supabaseOnline.js";
 import type {
   Announcement,
   BoardTheme,
@@ -62,6 +67,7 @@ import {
   blockPlayer,
   currentSession,
   getAnnouncements,
+  getApiBaseUrl,
   getHistory,
   getLeaderboard,
   getToken,
@@ -80,6 +86,8 @@ import { OpeningsView } from "./components/OpeningsView.js";
 import { TournamentsView } from "./components/TournamentsView.js";
 import { ProfileView } from "./components/ProfileView.js";
 import { GameClock } from "./components/GameClock.js";
+import { useBotWorker } from "./lib/useBotWorker.js";
+import { useJarvisWorker } from "./lib/useJarvisWorker.js";
 
 type View =
   | "dashboard"
@@ -552,38 +560,37 @@ function BotGame({
   const chess = useMemo(() => new Chess(fen), [fen]);
   const turn = sideFromTurn(chess.turn());
 
+  const botEnabled = !outcome && turn !== playerColor && !chess.isGameOver();
+  const { move: workerMove, thinking: workerThinking } = useBotWorker(fen, level, botEnabled);
+
   useEffect(() => {
-    if (outcome || turn === playerColor || chess.isGameOver() || botThinkingRef.current) {
-      return;
-    }
-    botThinkingRef.current = true;
+    botThinkingRef.current = workerThinking;
+  }, [workerThinking]);
+
+  useEffect(() => {
+    if (!workerMove || !botEnabled) return;
 
     const timer = window.setTimeout(() => {
       const active = new Chess(fen);
-      const move = selectBotMove(active.fen(), level);
-      if (move) {
-        const made = active.move(move);
-        const nextMoves = [...moves, made.san];
-        setFen(active.fen());
-        setMoves(nextMoves);
-        setLastMove({ from: made.from, to: made.to, san: made.san });
+      if (active.turn() === (playerColor === "white" ? "w" : "b") || active.isGameOver()) return;
 
-        const soundType = detectMoveSound(active, made.from, made.to);
-        playSound(soundType, user.settings);
+      const made = active.move(workerMove);
+      if (!made) return;
 
-        const result = getGameResult(active);
-        if (result) {
-          finishGame(result.result, result.reason, active.fen(), nextMoves);
-        }
-      }
-      botThinkingRef.current = false;
+      const nextMoves = [...moves, made.san];
+      setFen(active.fen());
+      setMoves(nextMoves);
+      setLastMove({ from: made.from, to: made.to, san: made.san });
+
+      const soundType = detectMoveSound(active, made.from, made.to);
+      playSound(soundType, user.settings);
+
+      const result = getGameResult(active);
+      if (result) finishGame(result.result, result.reason, active.fen(), nextMoves);
     }, user.settings.botDelayMs);
 
-    return () => {
-      window.clearTimeout(timer);
-      botThinkingRef.current = false;
-    };
-  }, [fen, outcome, turn, playerColor, level, user.settings.botDelayMs]);
+    return () => window.clearTimeout(timer);
+  }, [workerMove, botEnabled, fen, moves, playerColor, user.settings.botDelayMs]);
 
   function newGame() {
     const fresh = new Chess();
@@ -904,7 +911,7 @@ function OnlineGame({
   const prevSnapshotRef = useRef<GameSnapshot | null>(null);
 
   useEffect(() => {
-    const socket = io({
+    const socket = io(getApiBaseUrl() || undefined, {
       auth: { token: getToken() },
       transports: ["websocket", "polling"]
     });
@@ -1003,6 +1010,18 @@ function OnlineGame({
   }
 
   function createRoom() {
+    if (isSupabaseConfigured) {
+      createFriendRoomSupabase(user, preferredColor, { id: "blitz_5_0", name: "5 min Blitz", category: "blitz", initialSec: 300, incSec: 0 })
+        .then(({ roomCode, gameId, playerColor: color }) => {
+          setQueued(false);
+          setPlayerColor(color);
+          setMessage(`Room ${roomCode} is ready`);
+          subscribeToOnlineGameRealtime(gameId, (snap) => applySnapshot(snap));
+        })
+        .catch((err) => setMessage(err.message));
+      return;
+    }
+
     emit("friend:create", { preferredColor }, (ack) => {
       setQueued(false);
       setMessage(`Room ${ack.roomCode} is ready`);
@@ -1010,6 +1029,20 @@ function OnlineGame({
   }
 
   function joinRoom() {
+    if (isSupabaseConfigured) {
+      joinFriendRoomSupabase(user, joinCode)
+        .then(({ gameId, playerColor: color, snapshot: snap }) => {
+          setQueued(false);
+          setPlayerColor(color);
+          applySnapshot(snap);
+          setMessage("Joined friend room");
+          playSound("gameStart", user.settings);
+          subscribeToOnlineGameRealtime(gameId, (updatedSnap) => applySnapshot(updatedSnap));
+        })
+        .catch((err) => setMessage(err.message));
+      return;
+    }
+
     emit("friend:join", { roomCode: joinCode }, () => {
       setQueued(false);
       setMessage("Joined friend room");
@@ -1039,6 +1072,13 @@ function OnlineGame({
       const soundType = detectMoveSound(tempChess, move.from, move.to);
       playSound(soundType, user.settings);
     }
+
+    if (isSupabaseConfigured) {
+      submitOnlineMoveSupabase(snapshot.id, tempChess.fen(), `${move.from}${move.to}`, move.from, move.to)
+        .catch((err) => setMessage(err.message));
+      return;
+    }
+
     emit("game:move", { gameId: snapshot.id, ...move });
   }
 
@@ -1224,12 +1264,7 @@ function GameLayout({
   const activeClockSide = result ? null : interactiveSide === "both" ? turn : interactiveSide;
 
   // Calculate J.A.R.V.I.S. calculation & overlay for Owner
-  const jarvisAnalysis = useMemo(() => {
-    if (user.role === "owner" && !result) {
-      return analyzeWithJarvis(fen);
-    }
-    return null;
-  }, [user.role, fen, result]);
+  const { result: jarvisAnalysis } = useJarvisWorker(fen, user.role === "owner" && !result);
 
   return (
     <div className="game-layout">
