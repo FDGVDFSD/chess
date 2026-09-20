@@ -164,6 +164,10 @@ export async function currentSession() {
   if (sessionData.session?.access_token) setToken(sessionData.session.access_token);
 
   const user = await getOwnProfile(authUser.id, authUser.email ?? "");
+  void supabase
+    .from("profiles")
+    .update({ last_seen_at: new Date().toISOString() })
+    .eq("id", authUser.id);
   if (user.isBanned) {
     await logout();
     throw new Error("This account is suspended.");
