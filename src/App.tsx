@@ -29,7 +29,7 @@ import {
   Zap
 } from "lucide-react";
 import { getGameResult, sideFromTurn, tryMove } from "../shared/chess.js";
-import { isSupabaseConfigured } from "./lib/supabase.js";
+import { isSupabaseConfigured, supabase } from "./lib/supabase.js";
 import {
   createFriendRoomSupabase,
   joinFriendRoomSupabase,
@@ -135,6 +135,9 @@ function applyAnimationVars(settings: UserSettings) {
 
 export function App() {
   const [user, setUser] = useState<PublicUser | null>(null);
+  const [passwordRecovery, setPasswordRecovery] = useState(
+    () => new URLSearchParams(window.location.search).get("recovery") === "1"
+  );
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<View>("dashboard");
   const [policyModal, setPolicyModal] = useState<PolicyModalType>(null);
@@ -147,14 +150,32 @@ export function App() {
   const [analyzingGame, setAnalyzingGame] = useState<GameRecord | null>(null);
 
   useEffect(() => {
-    currentSession()
-      .then((session) => setUser(session.user))
-      .catch(() => setToken(null))
-      .finally(() => setLoading(false));
+    const recoveryHint = new URLSearchParams(window.location.search).get("recovery") === "1";
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "PASSWORD_RECOVERY") {
+        setPasswordRecovery(true);
+        setUser(null);
+        setLoading(false);
+      }
+    });
+
+    if (recoveryHint) {
+      setPasswordRecovery(true);
+      setUser(null);
+      setLoading(false);
+    } else {
+      currentSession()
+        .then((session) => setUser(session.user))
+        .catch(() => setToken(null))
+        .finally(() => setLoading(false));
+    }
 
     getAnnouncements()
       .then((res) => setAnnouncements(res.announcements.filter((a) => a.active)))
       .catch(() => {});
+
+    return () => authListener.subscription.unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -181,8 +202,17 @@ export function App() {
     );
   }
 
-  if (!user) {
-    return <AuthPanel onAuthed={setUser} />;
+  if (!user || passwordRecovery) {
+    return (
+      <AuthPanel
+        onAuthed={(authedUser) => {
+          setPasswordRecovery(false);
+          setUser(authedUser);
+        }}
+        passwordRecovery={passwordRecovery}
+        onRecoveryComplete={() => setPasswordRecovery(false)}
+      />
+    );
   }
 
   function openReportModal(target?: string) {
