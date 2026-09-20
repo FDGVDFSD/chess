@@ -10,7 +10,7 @@ This checklist tracks product safeguards inspired by a common "20 things to chec
 | 2 | Terms of service | In-app Terms cover eligibility, acceptable use, availability, ratings/moderation, payments, and contact. |
 | 3 | Refund policy | In-app Refund Policy states the current app has no paid checkout and requires updated terms before future paid features. |
 | 4 | Cookie/storage policy | In-app Cookie & Browser Storage Policy explains essential session/preference storage and current lack of advertising trackers. |
-| 5 | Cookie/storage notice | First-use privacy/storage notice is shown and remembered locally. If non-essential tracking is added later, implement jurisdiction-appropriate opt-in controls before enabling it. |
+| 5 | Cookie/storage notice | First-use privacy/storage notice is shown and remembered locally. Login/signup also provide an explicit Remember this device choice; unchecked sessions use session storage, while checked sessions persist across browser restarts. If non-essential tracking is added later, implement jurisdiction-appropriate opt-in controls before enabling it. |
 | 6 | Form consent | Signup requires explicit 13+ confirmation and agreement to Terms and Privacy Policy. Policy version/acknowledgement metadata is included with new signups. |
 | 7 | No unnecessary data | New signup no longer asks for birth year or full date of birth; it uses a 13+ confirmation instead. |
 | 8 | Audit third-party SDKs | Core dependencies and service providers are documented in THIRD_PARTY_NOTICES.md. No analytics/advertising SDK is intentionally included in the current core app. |
