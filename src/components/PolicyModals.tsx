@@ -84,7 +84,7 @@ export function PolicyModals({ type, onClose, targetUsername, onAccountDeleted }
             <div className="policy-section">
               <h3>Data we collect</h3>
               <ul>
-                <li><strong>Account:</strong> email, username, password credentials handled by Supabase Auth, and birth year used for age screening.</li>
+                <li><strong>Account:</strong> email, username, password credentials handled by Supabase Auth, and a 13+ signup confirmation. New signups do not require a full date of birth or birth year.</li>
                 <li><strong>Chess activity:</strong> moves, results, ratings, game history, reports, and moderation records.</li>
                 <li><strong>Preferences:</strong> board/theme/accessibility settings and essential session state.</li>
                 <li><strong>Technical processing:</strong> hosting/authentication services may process request, security, and connection metadata needed to operate the service.</li>
@@ -93,7 +93,7 @@ export function PolicyModals({ type, onClose, targetUsername, onAccountDeleted }
 
             <div className="policy-section">
               <h3>13+ service</h3>
-              <p>New Chess Arena accounts are intended for users age 13 or older. The signup flow blocks account creation when the selected birth year indicates the user is under 13. Chess Arena does not claim a verified parental-consent program.</p>
+              <p>New Chess Arena accounts are intended for users age 13 or older. Signup requires the user to confirm they are at least 13 without collecting a full date of birth. Chess Arena does not claim a verified parental-consent program.</p>
             </div>
 
             <div className="policy-section">
