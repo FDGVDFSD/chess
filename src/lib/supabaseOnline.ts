@@ -1,139 +1,189 @@
-import { supabase, isSupabaseConfigured } from "./supabase.js";
-import type { GameSnapshot, PlayerSeat, PublicUser, Side, TimeControl } from "../../shared/types.js";
 import { Chess } from "chess.js";
+import type { GameSnapshot, PublicUser, Side, TimeControl } from "../../shared/types.js";
+import { supabase, isSupabaseConfigured } from "./supabase.js";
 
-function generateCode(): string {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  return Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+type GameAction =
+  | "resign"
+  | "draw_offer"
+  | "draw_accept"
+  | "rematch"
+  | "flag_timeout";
+
+async function invokeGame<T>(body: Record<string, unknown>): Promise<T> {
+  if (!isSupabaseConfigured) throw new Error("Supabase is not configured.");
+  const { data, error } = await supabase.functions.invoke("chess-game", { body });
+  if (error) throw new Error(error.message);
+  if (data?.error) throw new Error(String(data.error));
+  return data as T;
+}
+
+export function mapOnlineRowToSnapshot(row: any): GameSnapshot {
+  const chess = new Chess(row.fen);
+  return {
+    id: row.id,
+    mode: row.mode ?? "friend",
+    roomCode: row.room_code ?? undefined,
+    timeControl: row.time_control ?? undefined,
+    whiteTimeRemainingMs: row.white_ms_remaining ?? undefined,
+    blackTimeRemainingMs: row.black_ms_remaining ?? undefined,
+    turnStartedAt: row.turn_started_at ?? undefined,
+    status: row.status,
+    fen: row.fen,
+    turn: row.turn ?? (chess.turn() === "w" ? "white" : "black"),
+    players: {
+      white: row.white_user_id
+        ? {
+            id: row.white_user_id,
+            username: row.white_username ?? "White",
+            role: row.white_role === "owner" ? "owner" : "user",
+            kind: "human",
+            rating: row.white_rating ?? undefined,
+            connected: true
+          }
+        : undefined,
+      black: row.black_user_id
+        ? {
+            id: row.black_user_id,
+            username: row.black_username ?? "Black",
+            role: row.black_role === "owner" ? "owner" : "user",
+            kind: "human",
+            rating: row.black_rating ?? undefined,
+            connected: true
+          }
+        : undefined
+    },
+    moves: row.moves ?? [],
+    lastMove: row.last_move ?? undefined,
+    isCheck: chess.inCheck(),
+    result: row.result ?? undefined,
+    reason: row.reason ?? undefined,
+    startedAt: row.started_at ?? row.created_at ?? new Date().toISOString(),
+    endedAt: row.ended_at ?? undefined,
+    drawOfferFrom: row.draw_offer_from ?? undefined
+  };
 }
 
 export async function createFriendRoomSupabase(
-  user: PublicUser,
+  _user: PublicUser,
   preferredColor: Side,
   timeControl: TimeControl
-): Promise<{ roomCode: string; gameId: string; playerColor: Side }> {
-  if (!isSupabaseConfigured) {
-    throw new Error("Supabase is not configured yet. Using local fallback.");
-  }
-
-  const roomCode = generateCode();
-  const playerColor = preferredColor === "black" ? "black" : "white";
-
-  const { data, error } = await supabase
-    .from("online_games")
-    .insert({
-      room_code: roomCode,
-      mode: "friend",
-      [playerColor === "white" ? "white_user_id" : "black_user_id"]: user.id,
-      [playerColor === "white" ? "white_username" : "black_username"]: user.username,
-      [playerColor === "white" ? "black_username" : "white_username"]: "Waiting for player...",
-      time_control: timeControl,
-      status: "waiting"
-    })
-    .select()
-    .single();
-
-  if (error) throw new Error(error.message);
-  return { roomCode, gameId: data.id, playerColor };
+): Promise<{ roomCode: string; gameId: string; playerColor: Side; snapshot: GameSnapshot }> {
+  const data = await invokeGame<{ game: any; playerColor: Side }>({
+    action: "create_friend",
+    preferredColor,
+    timeControl
+  });
+  const snapshot = mapOnlineRowToSnapshot(data.game);
+  return {
+    roomCode: snapshot.roomCode ?? "",
+    gameId: snapshot.id,
+    playerColor: data.playerColor,
+    snapshot
+  };
 }
 
 export async function joinFriendRoomSupabase(
-  user: PublicUser,
+  _user: PublicUser,
   roomCode: string
 ): Promise<{ gameId: string; playerColor: Side; snapshot: GameSnapshot }> {
-  if (!isSupabaseConfigured) {
-    throw new Error("Supabase is not configured yet.");
-  }
+  const data = await invokeGame<{ game: any; playerColor: Side }>({
+    action: "join_friend",
+    roomCode: roomCode.trim().toUpperCase()
+  });
+  return {
+    gameId: data.game.id,
+    playerColor: data.playerColor,
+    snapshot: mapOnlineRowToSnapshot(data.game)
+  };
+}
 
-  const cleanCode = roomCode.trim().toUpperCase();
-  const { data: game, error: fetchErr } = await supabase
-    .from("online_games")
-    .select("*")
-    .eq("room_code", cleanCode)
-    .single();
+export async function joinRandomMatchSupabase(
+  rating: number,
+  preferredColor: Side,
+  timeControl: TimeControl
+): Promise<{ queued: boolean; gameId?: string; playerColor?: Side; snapshot?: GameSnapshot }> {
+  const data = await invokeGame<{ queued: boolean; game?: any; playerColor?: Side }>({
+    action: "random_join",
+    rating,
+    preferredColor,
+    timeControl
+  });
 
-  if (fetchErr || !game) throw new Error("Room code not found.");
-  if (game.status === "complete") throw new Error("This game has already ended.");
+  return {
+    queued: data.queued,
+    gameId: data.game?.id,
+    playerColor: data.playerColor,
+    snapshot: data.game ? mapOnlineRowToSnapshot(data.game) : undefined
+  };
+}
 
-  let playerColor: Side = "black";
-  const updates: Record<string, any> = { status: "active" };
+export async function syncRandomMatchSupabase() {
+  const data = await invokeGame<{ queued: boolean; game?: any; playerColor?: Side }>({
+    action: "random_sync"
+  });
+  return {
+    queued: data.queued,
+    gameId: data.game?.id,
+    playerColor: data.playerColor,
+    snapshot: data.game ? mapOnlineRowToSnapshot(data.game) : undefined
+  };
+}
 
-  if (!game.white_user_id && game.black_user_id !== user.id) {
-    playerColor = "white";
-    updates.white_user_id = user.id;
-    updates.white_username = user.username;
-  } else if (!game.black_user_id && game.white_user_id !== user.id) {
-    playerColor = "black";
-    updates.black_user_id = user.id;
-    updates.black_username = user.username;
-  } else {
-    playerColor = game.white_user_id === user.id ? "white" : "black";
-  }
+export async function leaveRandomQueueSupabase() {
+  return invokeGame<{ ok: true }>({ action: "random_leave" });
+}
 
-  const { data: updatedGame, error: updateErr } = await supabase
-    .from("online_games")
-    .update(updates)
-    .eq("id", game.id)
-    .select()
-    .single();
-
-  if (updateErr) throw new Error(updateErr.message);
-
-  const snapshot = mapRowToSnapshot(updatedGame);
-  return { gameId: updatedGame.id, playerColor, snapshot };
+export async function syncOnlineGameSupabase(gameId: string) {
+  const data = await invokeGame<{ game: any; playerColor: Side }>({
+    action: "sync_game",
+    gameId
+  });
+  return {
+    playerColor: data.playerColor,
+    snapshot: mapOnlineRowToSnapshot(data.game)
+  };
 }
 
 export async function submitOnlineMoveSupabase(
   gameId: string,
-  fen: string,
-  moveSan: string,
   from: string,
-  to: string
-): Promise<void> {
-  if (!isSupabaseConfigured) return;
+  to: string,
+  promotion = "q"
+): Promise<GameSnapshot> {
+  const data = await invokeGame<{ game: any }>({
+    action: "move",
+    gameId,
+    from,
+    to,
+    promotion
+  });
+  return mapOnlineRowToSnapshot(data.game);
+}
 
-  const chess = new Chess(fen);
-  const nextTurn = chess.turn() === "w" ? "white" : "black";
-  const status = chess.isGameOver() ? "complete" : "active";
-
-  let result: string | null = null;
-  let reason: string | null = null;
-
-  if (chess.isCheckmate()) {
-    result = chess.turn() === "w" ? "black" : "white";
-    reason = "checkmate";
-  } else if (chess.isDraw() || chess.isStalemate()) {
-    result = "draw";
-    reason = "stalemate";
-  }
-
-  const { data: existing } = await supabase.from("online_games").select("moves").eq("id", gameId).single();
-  const currentMoves = existing?.moves ?? [];
-
-  const { error } = await supabase
-    .from("online_games")
-    .update({
-      fen,
-      moves: [...currentMoves, moveSan],
-      turn: nextTurn,
-      status,
-      result,
-      reason,
-      updated_at: new Date().toISOString()
-    })
-    .eq("id", gameId);
-
-  if (error) throw new Error(error.message);
+export async function onlineGameActionSupabase(
+  action: GameAction,
+  gameId: string
+): Promise<{ snapshot: GameSnapshot; gameId?: string; playerColor?: Side }> {
+  const data = await invokeGame<{ game: any; gameId?: string; playerColor?: Side }>({
+    action,
+    gameId
+  });
+  return {
+    snapshot: mapOnlineRowToSnapshot(data.game),
+    gameId: data.gameId,
+    playerColor: data.playerColor
+  };
 }
 
 export function subscribeToOnlineGameRealtime(
   gameId: string,
-  onSnapshot: (snapshot: GameSnapshot) => void
+  onSnapshot: (snapshot: GameSnapshot) => void,
+  onStatus?: (status: string) => void
 ) {
   if (!isSupabaseConfigured) return () => {};
 
   const channel = supabase
-    .channel(`game:${gameId}`)
+    .channel(`online-game:${gameId}`)
     .on(
       "postgres_changes",
       {
@@ -143,38 +193,39 @@ export function subscribeToOnlineGameRealtime(
         filter: `id=eq.${gameId}`
       },
       (payload) => {
-        const snapshot = mapRowToSnapshot(payload.new);
-        onSnapshot(snapshot);
+        onSnapshot(mapOnlineRowToSnapshot(payload.new));
+      }
+    )
+    .subscribe((status) => onStatus?.(status));
+
+  return () => {
+    void supabase.removeChannel(channel);
+  };
+}
+
+export function subscribeToMatchmaking(
+  userId: string,
+  onMatched: () => void
+) {
+  if (!isSupabaseConfigured) return () => {};
+
+  const channel = supabase
+    .channel(`matchmaking:${userId}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "UPDATE",
+        schema: "public",
+        table: "matchmaking_queue",
+        filter: `user_id=eq.${userId}`
+      },
+      (payload) => {
+        if (payload.new?.matched_game_id) onMatched();
       }
     )
     .subscribe();
 
   return () => {
-    supabase.removeChannel(channel);
-  };
-}
-
-function mapRowToSnapshot(row: any): GameSnapshot {
-  const moves = row.moves ?? [];
-  let lastMove: { from: string; to: string } | undefined = undefined;
-
-  return {
-    id: row.id,
-    mode: row.mode ?? "friend",
-    roomCode: row.room_code,
-    status: row.status,
-    fen: row.fen,
-    turn: row.turn ?? "white",
-    moves,
-    lastMove,
-    isCheck: false,
-    startedAt: row.created_at ?? new Date().toISOString(),
-    players: {
-      white: { username: row.white_username ?? "White", kind: "human" },
-      black: { username: row.black_username ?? "Black", kind: "human" }
-    },
-    result: row.result,
-    reason: row.reason,
-    timeControl: row.time_control
+    void supabase.removeChannel(channel);
   };
 }
