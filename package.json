@@ -4,12 +4,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node scripts/apply-bot-worker.mjs && concurrently -n SERVER,WEB -c cyan,green \"tsx watch server/index.ts\" \"vite --host 0.0.0.0\"",
-    "server": "tsx server/index.ts",
+    "dev": "node scripts/apply-bot-worker.mjs && vite --host 0.0.0.0",
+    "dev:legacy-server": "tsx watch server/index.ts",
+    "server:legacy": "tsx server/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "build": "node scripts/apply-bot-worker.mjs && vite build && tsc -p tsconfig.server.json",
-    "start": "node dist/server/server/index.js"
+    "build": "node scripts/apply-bot-worker.mjs && vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "start": "vite preview --host 0.0.0.0"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.0",
