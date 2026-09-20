@@ -1,29 +1,62 @@
 # ♟️ Chess Arena v2
 
-A full-stack chess platform built with React, TypeScript, chess.js, Netlify, and Supabase.
+<p align="center">
+  <strong>A modern full-stack chess platform for playing, improving, competing, and experimenting with chess AI.</strong>
+</p>
 
-Chess Arena v2 supports bot play, same-device games, persistent online friend rooms, rating-based matchmaking, synchronized clocks, puzzles, openings, ratings, game history, profiles, moderation tools, and owner-only J.A.R.V.I.S. assistance.
+<p align="center">
+  <a href="https://chess-arena-v2.netlify.app"><strong>🎮 Play Chess Arena Live</strong></a>
+  ·
+  <a href="https://github.com/dvilrgamerz/chess/issues">Report a Bug</a>
+  ·
+  <a href="SECURITY.md">Security</a>
+</p>
 
-> **v2 architecture:** the browser is a static Vite app. Supabase provides Auth, Postgres, Realtime, Row Level Security, and protected Edge Functions. A persistent Express/Socket.IO server is no longer required for production.
+<p align="center">
+  <a href="https://chess-arena-v2.netlify.app">
+    <img alt="Live Site" src="https://img.shields.io/badge/PLAY-LIVE-success?style=for-the-badge&logo=netlify" />
+  </a>
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-React-blue?style=for-the-badge&logo=typescript" />
+  <img alt="Supabase" src="https://img.shields.io/badge/Backend-Supabase-3ECF8E?style=for-the-badge&logo=supabase&logoColor=white" />
+  <img alt="Netlify" src="https://img.shields.io/badge/Deploy-Netlify-00C7B7?style=for-the-badge&logo=netlify&logoColor=white" />
+</p>
 
-## ✨ Highlights
+> **Live app:** [https://chess-arena-v2.netlify.app](https://chess-arena-v2.netlify.app)
 
-- **10-level bot ladder** with non-blocking worker calculations
-- **Local 2-player chess**
-- **Persistent online friend rooms** with 6-character room codes
-- **Random matchmaking** using stored rating and time-control compatibility
-- **Authoritative online moves** validated server-side with chess.js
-- **Synchronized clocks** with timeout validation and increment support
-- **Bullet, Blitz, Rapid, and overall ratings**
-- **Game history and post-game analysis**
-- **Puzzle trainer and puzzle rating**
-- **Openings explorer**
-- **Leaderboard, XP, levels, streaks, and daily progress**
-- **Reports, blocking, announcements, audit logs, bans, and owner controls**
-- **Owner-only J.A.R.V.I.S. analysis/assistance**
-- **Responsive PWA-style interface**
-- **GitHub Actions test/typecheck/build verification**
-- **Netlify security headers and Supabase RLS**
+---
+
+## 🚀 What is Chess Arena?
+
+**Chess Arena v2** is a complete chess platform built with **React, TypeScript, chess.js, Supabase, and Netlify**.
+
+It supports bot play, same-device matches, persistent online friend rooms, rating-based matchmaking, synchronized clocks, puzzles, openings, game history, player profiles, moderation tools, and owner-only J.A.R.V.I.S. assistance.
+
+The v2 architecture removes the old production dependency on a persistent Express/Socket.IO server. The browser runs as a static Vite application while Supabase handles authentication, persistence, realtime updates, security rules, and protected backend logic.
+
+## ✨ Features
+
+| Area | Features |
+| --- | --- |
+| 🤖 **Bots** | 10 bot levels, worker-based calculations, difficulty progression |
+| 🌐 **Online Play** | Friend rooms, 6-character room codes, matchmaking, realtime updates |
+| ⏱️ **Chess Clocks** | Server-backed clocks, increments, timeout validation |
+| 🏆 **Competitive** | Elo ratings, Bullet/Blitz/Rapid ratings, leaderboard |
+| 📈 **Progression** | XP, levels, streaks, daily progress, game history |
+| 🧩 **Training** | Puzzle trainer, puzzle rating, opening explorer |
+| 👥 **Local Play** | Same-device two-player chess |
+| 🛡️ **Safety** | Reports, blocking, bans, moderation tools, audit logs |
+| 👑 **Owner Tools** | Owner dashboard and J.A.R.V.I.S. assistance |
+| 📱 **UI** | Responsive layout, board themes, piece themes, accessibility settings |
+
+## 🎮 Play Now
+
+### 🌍 Live Production App
+
+**[▶ Open Chess Arena v2](https://chess-arena-v2.netlify.app)**
+
+Production branch: **`main`**
+
+---
 
 ## 🏗️ Architecture
 
@@ -32,7 +65,7 @@ Browser
   │
   ├── Vite + React + TypeScript
   │
-  ├── chess.js (local board rules / bot UI)
+  ├── chess.js
   │
   └── Supabase JS
           │
@@ -40,35 +73,135 @@ Browser
           ├── Postgres + RLS
           ├── Realtime
           └── Edge Functions
+                │
                 ├── chess-game
-                │     authoritative multiplayer moves,
-                │     clocks, matchmaking, results
+                │     ├── legal move validation
+                │     ├── matchmaking
+                │     ├── room management
+                │     ├── synchronized clocks
+                │     └── online results
+                │
                 └── chess-admin
-                      verified history, ratings,
-                      moderation and owner actions
+                      ├── ratings
+                      ├── saved history
+                      ├── moderation
+                      ├── analytics
+                      └── owner actions
 ```
 
-The browser never receives a Supabase secret/service-role key. Public clients use a publishable key, while privileged database writes stay inside Edge Functions.
+### Why this design?
 
-## 🔐 Security Model
+The browser never receives a Supabase secret/service-role key.
 
-Online game state is authoritative in Supabase. The client submits a requested move (`from`, `to`, optional promotion), and the `chess-game` Edge Function verifies authentication, player color, turn ownership, remaining clock time, move legality, and game state before committing it.
+Players send requests such as:
 
-Profiles use RLS and column-level grants. Normal users cannot promote themselves to owner, edit ratings, change ban status, or directly modify authoritative online games. Owner-only operations are checked again inside `chess-admin`.
+```text
+from: e2
+to: e4
+```
 
-The owner identity is configured server-side in the Supabase project and is intentionally not stored in this repository.
+The protected backend verifies authentication, player identity, color, turn, clock state, move legality, and current game state before committing an online move.
 
-See [SECURITY.md](SECURITY.md) for deployment requirements and reporting guidance.
+That means the browser cannot simply tell the database that it won.
+
+---
+
+## 🔐 Security
+
+Chess Arena v2 uses multiple layers of protection:
+
+- Supabase Authentication
+- Row Level Security
+- restricted database grants
+- protected Edge Functions
+- server-authoritative online moves
+- server-authoritative online clocks
+- protected ratings and statistics
+- protected owner/admin operations
+- state-version checks against stale move requests
+- Netlify security headers
+- Content Security Policy
+- GitHub Actions verification
+
+Normal players cannot directly promote themselves to owner, edit ratings, modify ban state, or rewrite authoritative online games.
+
+The owner identity is configured server-side and is intentionally **not stored in this repository**.
+
+See **[SECURITY.md](SECURITY.md)** for more information.
+
+---
+
+## 🧠 Game Integrity
+
+For online games, **the backend—not the browser—decides the result**.
+
+The `chess-game` Edge Function validates:
+
+1. authentication
+2. game membership
+3. player color
+4. current turn
+5. remaining clock time
+6. legal chess movement
+7. current state version
+8. checkmate/draw/timeout state
+9. final result persistence
+
+Completed rated games are saved before Elo/stat updates are applied.
+
+Bot/local games are also replay-validated before being accepted into saved history.
+
+---
+
+## 🧪 Quality Checks
+
+Every major change can be verified with:
+
+```bash
+npm test
+npm run typecheck
+npm run build
+```
+
+GitHub Actions runs the release checks for pushes and pull requests targeting `main`.
+
+---
+
+## 🛠️ Tech Stack
+
+### Frontend
+
+- React
+- TypeScript
+- Vite
+- chess.js
+- Lucide icons
+
+### Backend
+
+- Supabase Auth
+- Supabase Postgres
+- Supabase Realtime
+- Supabase Row Level Security
+- Supabase Edge Functions
+
+### Hosting & CI
+
+- Netlify
+- GitHub
+- GitHub Actions
+
+---
 
 ## 🚀 Local Development
 
-Requirements:
+### Requirements
 
 - Node.js 20+
 - npm
-- A Supabase project for Auth/database/realtime features
+- Supabase project
 
-Clone and run:
+### Clone
 
 ```bash
 git clone https://github.com/dvilrgamerz/chess.git
@@ -77,104 +210,154 @@ npm ci
 npm run dev
 ```
 
-The Vite dev server is the official v2 development runtime.
+The Vite development server is the official v2 frontend runtime.
 
-### Environment
+### Environment Variables
 
-Copy the example file:
+Copy:
 
 ```bash
 cp .env.example .env.local
 ```
 
-Then set:
+Then configure:
 
 ```env
 VITE_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
 VITE_SUPABASE_PUBLISHABLE_KEY=YOUR_PUBLISHABLE_KEY
 ```
 
-Only use a **publishable** key in `VITE_*` variables. Never put a Supabase secret/service-role key in frontend environment variables.
+> Only use a **publishable Supabase key** in frontend `VITE_*` variables. Never expose a Supabase secret/service-role key in browser code.
+
+---
 
 ## 🗄️ Supabase Setup
 
-The schema upgrade lives at:
+Database schema:
 
 ```text
 supabase/schema.sql
 ```
 
-The protected functions live at:
+Protected Edge Functions:
 
 ```text
 supabase/functions/chess-game/
 supabase/functions/chess-admin/
 ```
 
-For a new environment, apply the schema, deploy both Edge Functions, then configure the intended owner profile server-side. Do not add owner identifiers or secret keys to source control.
+The v2 database includes support for:
 
-Current v2 tables cover profiles, saved games, online games, matchmaking, puzzle results, player reports, announcements, and audit logs.
+- profiles
+- games
+- online games
+- matchmaking
+- puzzle progress
+- reports
+- announcements
+- audit logs
 
-## 🧪 Verification
+For a fresh environment, apply the schema, deploy both Edge Functions, and configure the intended owner account server-side.
 
-Run the same checks used by CI:
+---
 
-```bash
-npm test
-npm run typecheck
-npm run build
-```
+## 🌐 Netlify Deployment
 
-GitHub Actions runs all three checks for pushes and pull requests targeting `main`.
+The included `netlify.toml` uses:
 
-## 🌐 Netlify
-
-The included `netlify.toml` builds with:
+**Build command**
 
 ```text
 npm run build
 ```
 
-and publishes:
+**Publish directory**
 
 ```text
 dist/client
 ```
 
-SPA fallback, long-term asset caching, HSTS, clickjacking protection, MIME sniffing protection, permissions restrictions, and a Supabase-compatible Content Security Policy are already configured.
+It also includes SPA routing, asset caching, HSTS, clickjacking protection, MIME sniffing protection, permission restrictions, and a Supabase-compatible Content Security Policy.
+
+### Production
+
+**Branch:** `main`
+
+**Live URL:** [chess-arena-v2.netlify.app](https://chess-arena-v2.netlify.app)
+
+---
 
 ## 📁 Project Structure
 
 ```text
-src/
-  components/          React UI
-  lib/                 browser services, workers, Supabase client
-shared/                 shared chess/types code
-tests/                  Vitest test suite
-supabase/
-  schema.sql            v2 database/RLS upgrade
-  functions/
-    chess-game/         authoritative multiplayer backend
-    chess-admin/        history/rating/admin backend
-server/                  legacy v1 Node backend (not production v2 runtime)
-.github/workflows/       CI
-netlify.toml             production frontend deployment
+chess/
+├── src/
+│   ├── components/       React UI
+│   └── lib/              Supabase client, browser services, workers
+│
+├── shared/               shared chess and TypeScript models
+├── tests/                Vitest test suite
+│
+├── supabase/
+│   ├── schema.sql
+│   └── functions/
+│       ├── chess-game/   authoritative multiplayer backend
+│       └── chess-admin/  ratings, history and administration
+│
+├── server/               legacy v1 server reference
+├── .github/workflows/    CI
+├── netlify.toml          production deployment config
+├── SECURITY.md
+└── README.md
 ```
 
-The `server/` directory is retained for legacy reference/tests; production v2 does not depend on it.
-
-## 🎮 Game Integrity
-
-For online games, the Edge Function—not the browser—decides whether a move is legal and whether a timeout, checkmate, draw, resignation, or rating update is valid. State-version checks prevent two stale move requests from silently overwriting one another.
-
-Completed rated online games are saved exactly once before Elo/stat updates are applied. Bot games are also replay-validated before being accepted into history.
-
-## 🧭 v2 Status
-
-The v2 branch focuses on replacing the mixed Supabase/Express authentication architecture with a single Supabase-backed production design, persistent multiplayer, secure owner authorization, synchronized clocks, and deployment reliability.
-
-Before merging a v2 change into `main`, keep CI green and review any Supabase security-advisor warnings.
+> The `server/` folder remains for legacy/reference purposes. Production v2 does not rely on it.
 
 ---
 
-Built as an evolving chess platform for learning, competing, and experimenting with chess AI.
+## 🧭 v2 Status
+
+Chess Arena v2 focuses on:
+
+- persistent multiplayer
+- Supabase-first production architecture
+- secure authentication
+- authoritative move validation
+- synchronized clocks
+- reliable matchmaking
+- stronger owner authorization
+- safer database permissions
+- cleaner deployment
+- automated CI verification
+
+---
+
+## 🤝 Contributing
+
+Ideas, bug reports, testing feedback, and improvements are welcome.
+
+1. Create a branch
+2. Make your changes
+3. Run tests/typecheck/build
+4. Open a pull request
+5. Keep production changes reviewable and secure
+
+---
+
+## 🔗 Links
+
+- 🎮 **Live App:** [chess-arena-v2.netlify.app](https://chess-arena-v2.netlify.app)
+- 💻 **Repository:** [github.com/dvilrgamerz/chess](https://github.com/dvilrgamerz/chess)
+- 🐛 **Issues:** [GitHub Issues](https://github.com/dvilrgamerz/chess/issues)
+- 🔐 **Security:** [SECURITY.md](SECURITY.md)
+
+---
+
+<p align="center">
+  <strong>♟️ Chess Arena v2</strong><br />
+  Play • Improve • Compete
+</p>
+
+<p align="center">
+  Built as an evolving chess platform for learning, competition, and chess AI experimentation.
+</p>
