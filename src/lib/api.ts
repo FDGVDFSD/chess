@@ -182,6 +182,39 @@ export async function logout() {
   return { ok: true as const };
 }
 
+export async function requestPasswordReset(email: string) {
+  const cleanEmail = email.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(cleanEmail)) {
+    throw new Error("Enter a valid email address.");
+  }
+
+  const redirectTo = `${window.location.origin}/?recovery=1`;
+  const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
+    redirectTo
+  });
+
+  if (error) throw new Error(error.message);
+  return { ok: true as const };
+}
+
+export async function updateRecoveredPassword(password: string) {
+  if (password.length < 8) {
+    throw new Error("New password must be at least 8 characters.");
+  }
+
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError || !sessionData.session) {
+    throw new Error("This reset link is invalid or expired. Request a new password-reset email.");
+  }
+
+  const { error } = await supabase.auth.updateUser({ password });
+  if (error) throw new Error(error.message);
+
+  await supabase.auth.signOut();
+  setToken(null);
+  return { ok: true as const };
+}
+
 async function invokeSecure<T>(body: Record<string, unknown>): Promise<T> {
   const { data, error } = await supabase.functions.invoke("chess-admin", { body });
   if (error) throw new Error(error.message);
