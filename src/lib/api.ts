@@ -188,7 +188,7 @@ export async function requestPasswordReset(email: string) {
     throw new Error("Enter a valid email address.");
   }
 
-  const redirectTo = `${window.location.origin}/?recovery=1`;
+  const redirectTo = `${window.location.origin}/reset-password?recovery=1`;
   const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
     redirectTo
   });
