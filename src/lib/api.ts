@@ -9,7 +9,7 @@ import type {
   SystemAnalytics,
   UserSettings
 } from "../../shared/types.js";
-import { supabase } from "./supabase.js";
+import { setRememberDevicePreference, supabase } from "./supabase.js";
 
 const tokenKey = "chess-arena-token";
 
@@ -94,7 +94,8 @@ async function getAuthUser() {
 export async function signup(
   email: string,
   password: string,
-  username: string
+  username: string,
+  rememberDevice = false
 ): Promise<AuthResponse> {
   const cleanEmail = email.trim().toLowerCase();
   const cleanUsername = username.trim();
@@ -108,6 +109,8 @@ export async function signup(
   if (password.length < 6) {
     throw new Error("Password must be at least 6 characters.");
   }
+  setRememberDevicePreference(rememberDevice);
+
   const { data, error } = await supabase.auth.signUp({
     email: cleanEmail,
     password,
@@ -133,11 +136,13 @@ export async function signup(
   return { token: data.session.access_token, user };
 }
 
-export async function login(email: string, password: string): Promise<AuthResponse> {
+export async function login(email: string, password: string, rememberDevice = false): Promise<AuthResponse> {
   const cleanEmail = email.trim().toLowerCase();
   if (!cleanEmail.includes("@")) {
     throw new Error("For v2, sign in with your email address.");
   }
+
+  setRememberDevicePreference(rememberDevice);
 
   const { data, error } = await supabase.auth.signInWithPassword({
     email: cleanEmail,
