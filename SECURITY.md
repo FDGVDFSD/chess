@@ -1,39 +1,41 @@
 # Chess Arena Security
 
-## Production security requirements
+Chess Arena v2 uses a static Vite frontend with Supabase Auth, Postgres, Realtime, Row Level Security, and protected Edge Functions.
 
-Chess Arena has two parts: a Vite frontend and an Express/Socket.IO backend. The Netlify site should host the frontend only. The API and Socket.IO server must run on a persistent Node host with HTTPS/WSS.
+## Trust boundaries
 
-### Secrets
+The browser is never trusted to decide authorization, owner status, online game legality, ratings, bans, or authoritative multiplayer state.
 
-Never commit owner passwords, API keys, session secrets, database credentials, or `.env` files. Configure these through the backend host's environment variables.
+Online moves are submitted as a requested source square, destination square, and promotion. The `chess-game` Edge Function authenticates the caller, verifies that the caller belongs to the game and owns the current turn, validates the move with chess.js, computes the clock, and commits the next state.
 
-Required production variables include:
+Owner and moderation actions run through `chess-admin`, which authenticates the caller and checks the owner role server-side before using privileged database access.
 
-- `OWNER_EMAIL`
-- `OWNER_USERNAME`
-- `OWNER_INITIAL_PASSWORD` (only for first-time owner seeding)
-- `FRONTEND_ORIGIN` (the exact Netlify origin)
-- `PORT`
+## Secrets
 
-After initial owner setup, rotate the bootstrap password and remove any bootstrap credential from deployment configuration where possible.
+Never commit Supabase secret/service-role keys, passwords, database credentials, or local `.env` files.
 
-### Authentication
+The frontend may receive only a Supabase **publishable key**. Publishable keys are expected to be visible in browser applications and rely on RLS for data protection.
 
-- Do not use one-click credential login in the public UI.
-- Login and owner verification must be rate limited.
-- Owner/admin actions must be authorized server-side.
-- Sensitive owner actions should require recent re-verification.
-- Sessions must expire and be invalidated on logout.
+Edge Functions read their server-side secret key from the Supabase-managed function environment.
 
-### API authorization
+## Row Level Security
 
-Every endpoint that changes data must validate the authenticated user and the specific object being changed. Never trust client-supplied role, rating, game result, puzzle rating, or ownership fields.
+Every browser-accessible table must have RLS enabled and policies limited to the minimum required rows. Column grants additionally prevent users from changing sensitive profile fields such as role, rating, ban state, or account statistics.
 
-### Abuse and DDoS protection
+Legacy `arena.*` tables are retained for compatibility but browser roles are explicitly denied.
 
-Netlify provides automatic DDoS protection for the frontend. Backend protection must also include provider-level DDoS protection, HTTPS/WSS, request rate limits, connection limits, payload limits, and monitoring/alerting. Netlify rate limiting can additionally protect frontend paths where available.
+## Authentication
 
-### Reporting
+Use Supabase Auth for account creation, login, session refresh, and logout. Owner identity is configured server-side; email, username, or user metadata alone must never grant owner privileges.
 
-If a security issue is discovered, do not publish credentials or exploit details in a public issue. Rotate exposed secrets first and use GitHub's private security reporting workflow when available.
+For production, enable Supabase Auth leaked-password protection and use a strong password policy.
+
+## Deployment
+
+The production frontend can be hosted on Netlify. A persistent Express/Socket.IO server is not required for v2.
+
+Netlify security headers include HSTS, frame denial, MIME sniffing protection, a restrictive Permissions Policy, and a Content Security Policy that permits the configured Supabase HTTPS and Realtime WebSocket endpoints.
+
+## Security reporting
+
+Do not publish credentials, access tokens, database secrets, or detailed exploit instructions in a public issue. Revoke or rotate exposed credentials first, then use GitHub private security reporting when available.
