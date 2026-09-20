@@ -115,6 +115,8 @@ export async function signup(
       data: {
         username: cleanUsername,
         age_13_plus_confirmed: true,
+        terms_accepted: true,
+        privacy_accepted: true,
         policy_version: "2026-09-19"
       }
     }
