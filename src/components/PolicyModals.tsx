@@ -175,7 +175,7 @@ export function PolicyModals({ type, onClose, targetUsername, onAccountDeleted }
 
             <div className="policy-section">
               <h3>Essential storage</h3>
-              <p>Chess Arena uses browser storage for authentication/session handling, security state, app preferences, and remembering that you acknowledged the privacy notice. This storage is necessary for core account features.</p>
+              <p>Chess Arena uses browser storage for authentication/session handling, security state, app preferences, and remembering that you acknowledged the privacy notice. If you enable <strong>Remember this device</strong>, the authentication session is stored persistently so you can stay signed in after closing the browser. If you leave it off, the session is kept only for the current browser session.</p>
             </div>
 
             <div className="policy-section">
@@ -185,7 +185,7 @@ export function PolicyModals({ type, onClose, targetUsername, onAccountDeleted }
 
             <div className="policy-section">
               <h3>Clearing storage</h3>
-              <p>You can clear site data using your browser settings. Doing so may sign you out and reset local preferences.</p>
+              <p>You can clear site data using your browser settings. Doing so may sign you out and reset local preferences. On shared or public devices, leave Remember this device turned off and sign out when finished.</p>
             </div>
             {closeButton}
           </article>
