@@ -3,6 +3,7 @@ import { Calendar, Crown, Eye, EyeOff, Lock, Mail, Shield, UserPlus } from "luci
 import { login, requestPasswordReset, setToken, signup, updateRecoveredPassword } from "../lib/api.js";
 import type { PublicUser } from "../../shared/types.js";
 import { PolicyModals, type PolicyModalType } from "./PolicyModals.js";
+import { PrivacyNoticeBanner } from "./PrivacyNoticeBanner.js";
 
 interface AuthPanelProps {
   onAuthed: (user: PublicUser) => void;
@@ -27,6 +28,7 @@ export function AuthPanel({ onAuthed, passwordRecovery = false, onRecoveryComple
   const [showPassword, setShowPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [acceptedPolicies, setAcceptedPolicies] = useState(false);
   const currentYear = new Date().getFullYear();
 
   useEffect(() => {
@@ -73,12 +75,17 @@ export function AuthPanel({ onAuthed, passwordRecovery = false, onRecoveryComple
     if (mode === "signup") {
       if (signupStep === 1) {
         if (!birthYear || birthYear < 1920 || birthYear > currentYear) { setError("Please select a valid birth year."); return; }
+        if (isUnder13) { setError("Chess Arena accounts are currently available to users age 13 or older."); return; }
         setSignupStep(2); return;
       }
       if (signupStep === 2) {
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(email.trim())) { setError("Enter a valid email address."); return; }
         if (password.length < 6) { setError("Password must be at least 6 characters."); return; }
         setSignupStep(3); return;
+      }
+      if (signupStep === 3 && !acceptedPolicies) {
+        setError("Please agree to the Terms of Service and Privacy Policy to create an account.");
+        return;
       }
     }
     setBusy(true);
@@ -93,7 +100,8 @@ export function AuthPanel({ onAuthed, passwordRecovery = false, onRecoveryComple
 
   return (
     <>
-      <main className="auth-screen">
+      <a className="skip-link" href="#auth-main">Skip to sign in</a>
+      <main className="auth-screen" id="auth-main">
         <section className="brand-panel" aria-label="Chess Arena">
           <div className="brand-header"><div className="brand-mark"><Crown size={38} /></div><div><h1 className="brand-title">Chess Arena</h1><span className="brand-tagline">Play • Improve • Compete</span></div></div>
           <h2 className="brand-subtitle">Play chess your way</h2>
@@ -103,7 +111,16 @@ export function AuthPanel({ onAuthed, passwordRecovery = false, onRecoveryComple
           <div className="privacy-badge-panel">
             <div className="privacy-badge-title"><Shield size={18} /><strong>Safe & Privacy-Focused</strong></div>
             <p>We collect only the information needed to run your Chess Arena account and games. We don't ask for unnecessary personal information.</p>
-            <div className="policy-links"><button type="button" className="text-link" onClick={() => setPolicyModal("privacy")}>Privacy Policy</button><span>•</span><button type="button" className="text-link" onClick={() => setPolicyModal("terms")}>Terms</button><span>•</span><button type="button" className="text-link" onClick={() => setPolicyModal("guidelines")}>Community Guidelines</button><span>•</span><button type="button" className="text-link" onClick={() => setPolicyModal("report")}>Report a Problem</button></div>
+            <div className="policy-links">
+              <button type="button" className="text-link" onClick={() => setPolicyModal("privacy")}>Privacy</button><span>•</span>
+              <button type="button" className="text-link" onClick={() => setPolicyModal("terms")}>Terms</button><span>•</span>
+              <button type="button" className="text-link" onClick={() => setPolicyModal("cookies")}>Cookies & Storage</button><span>•</span>
+              <button type="button" className="text-link" onClick={() => setPolicyModal("refunds")}>Refunds</button><span>•</span>
+              <button type="button" className="text-link" onClick={() => setPolicyModal("accessibility")}>Accessibility</button><span>•</span>
+              <button type="button" className="text-link" onClick={() => setPolicyModal("licenses")}>Licenses</button><span>•</span>
+              <button type="button" className="text-link" onClick={() => setPolicyModal("guidelines")}>Guidelines</button><span>•</span>
+              <button type="button" className="text-link" onClick={() => setPolicyModal("report")}>Report</button>
+            </div>
           </div>
         </section>
         <section className="auth-card">
@@ -132,9 +149,9 @@ export function AuthPanel({ onAuthed, passwordRecovery = false, onRecoveryComple
           ) : mode === "signup" ? (
             <form onSubmit={(event) => { event.preventDefault(); void submit(); }}>
               <div className="step-row"><span className={signupStep === 1 ? "step active" : "step"}>1</span><span className={signupStep === 2 ? "step active" : "step"}>2</span><span className={signupStep === 3 ? "step active" : "step"}>3</span></div>
-              {signupStep === 1 && <><label>Select Birth Year<span className="input-shell"><Calendar size={16} /><select value={birthYear} onChange={(e) => setBirthYear(Number(e.target.value))} className="setting-item select inline-select">{Array.from({ length: 90 }, (_, i) => currentYear - i).map((yr) => <option key={yr} value={yr}>{yr}</option>)}</select></span></label>{isUnder13 && <div className="age-notice"><Shield size={16} /><span><strong>Under 13 Account Notice:</strong> Neutral age verification active. Data collection is strictly minimized in compliance with U.S. privacy guidelines.</span></div>}</>}
+              {signupStep === 1 && <><label>Select Birth Year<span className="input-shell"><Calendar size={16} /><select value={birthYear} onChange={(e) => setBirthYear(Number(e.target.value))} className="setting-item select inline-select">{Array.from({ length: 90 }, (_, i) => currentYear - i).map((yr) => <option key={yr} value={yr}>{yr}</option>)}</select></span></label><p className="muted text-sm">Chess Arena accounts are currently for users age 13+.</p>{isUnder13 && <div className="age-notice"><Shield size={16} /><span><strong>Age requirement:</strong> You must be at least 13 years old to create a Chess Arena account.</span></div>}</>}
               {signupStep === 2 && <><label>Email<span className="input-shell"><Mail size={16} /><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></span></label><label>Password<span className="input-shell"><Lock size={16} /><input type={showPassword ? "text" : "password"} minLength={6} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" required /><button className="password-toggle" type="button" onClick={() => setShowPassword((show) => !show)} aria-label={showPassword ? "Hide password" : "Show password"} title={showPassword ? "Hide password" : "Show password"}>{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button></span></label></>}
-              {signupStep === 3 && <label>Username<span className="input-shell"><Crown size={16} /><input value={username} pattern="[a-zA-Z0-9_ ]{3,18}" onChange={(event) => setUsername(event.target.value)} placeholder="e.g. GrandmasterFlex" required /></span></label>}
+              {signupStep === 3 && <><label>Username<span className="input-shell"><Crown size={16} /><input value={username} pattern="[a-zA-Z0-9_ ]{3,18}" onChange={(event) => setUsername(event.target.value)} placeholder="e.g. GrandmasterFlex" required /></span></label><label className="consent-row"><input type="checkbox" checked={acceptedPolicies} onChange={(event) => setAcceptedPolicies(event.target.checked)} required /><span>I agree to the <button type="button" className="inline-policy-link" onClick={() => setPolicyModal("terms")}>Terms of Service</button> and <button type="button" className="inline-policy-link" onClick={() => setPolicyModal("privacy")}>Privacy Policy</button>.</span></label></>}
               <div className="auth-btn-row">{signupStep > 1 && <button className="secondary" type="button" onClick={() => setSignupStep((prev) => (prev - 1) as 1 | 2)}>Back</button>}<button className="primary full" disabled={busy} type="submit">{signupStep < 3 ? "Next" : busy ? "Creating Account..." : "Create Account"}</button></div>
             </form>
           ) : (
@@ -149,6 +166,7 @@ export function AuthPanel({ onAuthed, passwordRecovery = false, onRecoveryComple
           {success ? <p className="form-success" role="status">{success}</p> : null}
         </section>
       </main>
+      <PrivacyNoticeBanner onOpenPolicy={setPolicyModal} />
       <PolicyModals type={policyModal} onClose={() => setPolicyModal(null)} />
     </>
   );
