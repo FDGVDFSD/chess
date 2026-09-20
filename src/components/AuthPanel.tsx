@@ -4,6 +4,7 @@ import { login, requestPasswordReset, setToken, signup, updateRecoveredPassword 
 import type { PublicUser } from "../../shared/types.js";
 import { PolicyModals, type PolicyModalType } from "./PolicyModals.js";
 import { PrivacyNoticeBanner } from "./PrivacyNoticeBanner.js";
+import { getRememberDevicePreference } from "../lib/supabase.js";
 
 interface AuthPanelProps {
   onAuthed: (user: PublicUser) => void;
@@ -29,6 +30,7 @@ export function AuthPanel({ onAuthed, passwordRecovery = false, onRecoveryComple
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [acceptedPolicies, setAcceptedPolicies] = useState(false);
   const [confirmedAge13Plus, setConfirmedAge13Plus] = useState(false);
+  const [rememberDevice, setRememberDevice] = useState(() => getRememberDevicePreference());
 
   useEffect(() => {
     if (passwordRecovery) {
@@ -87,7 +89,7 @@ export function AuthPanel({ onAuthed, passwordRecovery = false, onRecoveryComple
     }
     setBusy(true);
     try {
-      const result = mode === "signup" ? await signup(email, password, username) : await login(loginName || email, password);
+      const result = mode === "signup" ? await signup(email, password, username, rememberDevice) : await login(loginName || email, password, rememberDevice);
       setToken(result.token);
       onAuthed(result.user);
     } catch (err) {
@@ -148,13 +150,14 @@ export function AuthPanel({ onAuthed, passwordRecovery = false, onRecoveryComple
               <div className="step-row"><span className={signupStep === 1 ? "step active" : "step"}>1</span><span className={signupStep === 2 ? "step active" : "step"}>2</span><span className={signupStep === 3 ? "step active" : "step"}>3</span></div>
               {signupStep === 1 && <><div className="age-notice"><Shield size={16} /><span><strong>Age requirement:</strong> Chess Arena accounts are currently for users age 13 or older. We do not need your full date of birth.</span></div><label className="consent-row"><input type="checkbox" checked={confirmedAge13Plus} onChange={(event) => setConfirmedAge13Plus(event.target.checked)} required /><span>I confirm that I am at least 13 years old.</span></label></>}
               {signupStep === 2 && <><label>Email<span className="input-shell"><Mail size={16} /><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></span></label><label>Password<span className="input-shell"><Lock size={16} /><input type={showPassword ? "text" : "password"} minLength={6} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" required /><button className="password-toggle" type="button" onClick={() => setShowPassword((show) => !show)} aria-label={showPassword ? "Hide password" : "Show password"} title={showPassword ? "Hide password" : "Show password"}>{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button></span></label></>}
-              {signupStep === 3 && <><label>Username<span className="input-shell"><Crown size={16} /><input value={username} pattern="[a-zA-Z0-9_ ]{3,18}" onChange={(event) => setUsername(event.target.value)} placeholder="e.g. GrandmasterFlex" required /></span></label><label className="consent-row"><input type="checkbox" checked={acceptedPolicies} onChange={(event) => setAcceptedPolicies(event.target.checked)} required /><span>I agree to the <button type="button" className="inline-policy-link" onClick={() => setPolicyModal("terms")}>Terms of Service</button> and <button type="button" className="inline-policy-link" onClick={() => setPolicyModal("privacy")}>Privacy Policy</button>.</span></label></>}
+              {signupStep === 3 && <><label>Username<span className="input-shell"><Crown size={16} /><input value={username} pattern="[a-zA-Z0-9_ ]{3,18}" onChange={(event) => setUsername(event.target.value)} placeholder="e.g. GrandmasterFlex" required /></span></label><label className="consent-row"><input type="checkbox" checked={rememberDevice} onChange={(event) => setRememberDevice(event.target.checked)} /><span><strong>Remember this device</strong><br /><span className="muted">Stay signed in after closing your browser. Only use this on a personal device.</span></span></label><label className="consent-row"><input type="checkbox" checked={acceptedPolicies} onChange={(event) => setAcceptedPolicies(event.target.checked)} required /><span>I agree to the <button type="button" className="inline-policy-link" onClick={() => setPolicyModal("terms")}>Terms of Service</button> and <button type="button" className="inline-policy-link" onClick={() => setPolicyModal("privacy")}>Privacy Policy</button>.</span></label></>}
               <div className="auth-btn-row">{signupStep > 1 && <button className="secondary" type="button" onClick={() => setSignupStep((prev) => (prev - 1) as 1 | 2)}>Back</button>}<button className="primary full" disabled={busy} type="submit">{signupStep < 3 ? "Next" : busy ? "Creating Account..." : "Create Account"}</button></div>
             </form>
           ) : (
             <form onSubmit={(event) => { event.preventDefault(); void submit(); }}>
               <label>Email<span className="input-shell"><Mail size={16} /><input type="email" value={loginName} onChange={(event) => setLoginName(event.target.value)} autoComplete="email" required /></span></label>
               <label>Password<span className="input-shell"><Lock size={16} /><input type={showPassword ? "text" : "password"} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required /><button className="password-toggle" type="button" onClick={() => setShowPassword((show) => !show)} aria-label={showPassword ? "Hide password" : "Show password"} title={showPassword ? "Hide password" : "Show password"}>{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button></span></label>
+              <label className="consent-row"><input type="checkbox" checked={rememberDevice} onChange={(event) => setRememberDevice(event.target.checked)} /><span><strong>Remember this device</strong><br /><span className="muted">Stay signed in after closing your browser. Leave this off on shared or public devices.</span></span></label>
               <button className="primary full" disabled={busy} type="submit">{busy ? "Signing in..." : "Log in"}</button>
               <button className="text-link" type="button" onClick={() => { setMode("forgot"); setError(""); setSuccess(""); setEmail(loginName); }}>Forgot password?</button>
             </form>
