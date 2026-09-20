@@ -286,6 +286,60 @@ Deno.serve(async (req: Request) => {
       return json({ game });
     }
 
+    if (action === "leaderboard") {
+      const { data, error } = await admin
+        .from("profiles")
+        .select("id,username,role,rating,format_ratings,puzzle_rating,wins,losses,draws")
+        .eq("is_banned", false)
+        .order("rating", { ascending: false })
+        .order("wins", { ascending: false })
+        .order("username", { ascending: true });
+      if (error) throw new Error(error.message);
+      return json({
+        rows: (data ?? []).map((row: any) => ({
+          userId: row.id,
+          username: row.username,
+          role: row.role === "owner" ? "owner" : "user",
+          rating: Number(row.rating ?? 1000),
+          formatRatings: row.format_ratings ?? { bullet: 1000, blitz: 1000, rapid: 1000 },
+          puzzleRating: Number(row.puzzle_rating ?? 1200),
+          wins: Number(row.wins ?? 0),
+          losses: Number(row.losses ?? 0),
+          draws: Number(row.draws ?? 0),
+          gamesPlayed: Number(row.wins ?? 0) + Number(row.losses ?? 0) + Number(row.draws ?? 0)
+        }))
+      });
+    }
+
+    if (action === "puzzle_result") {
+      const success = body.success === true;
+      const delta = success ? 15 : -10;
+      const xpGain = success ? 25 : 0;
+      const currentXp = Number(profile.xp ?? 0);
+      const { data, error } = await admin
+        .from("profiles")
+        .update({
+          puzzle_rating: Math.max(100, Number(profile.puzzle_rating ?? 1200) + delta),
+          xp: currentXp + xpGain,
+          level: Math.floor((currentXp + xpGain) / 100) + 1,
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", user.id)
+        .select("*")
+        .single();
+      if (error) throw new Error(error.message);
+
+      const { error: solveError } = await admin.from("puzzle_solves").insert({
+        user_id: user.id,
+        puzzle_id: null,
+        success,
+        rating_delta: delta,
+        xp_delta: xpGain
+      });
+      if (solveError) throw new Error(solveError.message);
+      return json({ user: data });
+    }
+
     if (profile.role !== "owner") {
       return json({ error: "Owner privileges are required." }, 403);
     }
