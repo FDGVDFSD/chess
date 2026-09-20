@@ -94,8 +94,7 @@ async function getAuthUser() {
 export async function signup(
   email: string,
   password: string,
-  username: string,
-  birthYear?: number
+  username: string
 ): Promise<AuthResponse> {
   const cleanEmail = email.trim().toLowerCase();
   const cleanUsername = username.trim();
@@ -109,20 +108,14 @@ export async function signup(
   if (password.length < 6) {
     throw new Error("Password must be at least 6 characters.");
   }
-  if (birthYear) {
-    const currentYear = new Date().getFullYear();
-    if (birthYear > currentYear - 13) {
-      throw new Error("Chess Arena accounts are currently available to users age 13 or older.");
-    }
-  }
-
   const { data, error } = await supabase.auth.signUp({
     email: cleanEmail,
     password,
     options: {
       data: {
         username: cleanUsername,
-        birth_year: birthYear
+        age_13_plus_confirmed: true,
+        policy_version: "2026-09-19"
       }
     }
   });
