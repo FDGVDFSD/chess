@@ -334,6 +334,9 @@ begin
   end if;
 end $$;
 
+alter table public.online_games alter column white_user_id drop not null;
+alter table public.online_games alter column black_user_id drop not null;
+
 alter table public.online_games drop constraint if exists online_games_status_check;
 update public.online_games
 set status = 'complete'
