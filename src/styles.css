@@ -184,6 +184,30 @@ button:disabled {
   background: transparent;
 }
 
+.password-toggle {
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.password-toggle:hover,
+.password-toggle:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f6f8f3;
+  outline: none;
+}
+
+.password-toggle:focus-visible {
+  box-shadow: 0 0 0 2px rgba(98, 210, 127, 0.45);
+}
+
 .name-input,
 .code-input,
 .setting-item select {
