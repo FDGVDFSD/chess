@@ -70,6 +70,7 @@ import {
 import {
   blockPlayer,
   currentSession,
+  initializePasswordRecoverySession,
   getAnnouncements,
   getHistory,
   getLeaderboard,
@@ -172,7 +173,12 @@ export function App() {
     if (recoveryHint) {
       setPasswordRecovery(true);
       setUser(null);
-      setLoading(false);
+      initializePasswordRecoverySession()
+        .catch(() => {
+          // Keep the recovery screen visible so the user gets a clear
+          // invalid/expired-link message when they submit or request a new link.
+        })
+        .finally(() => setLoading(false));
     } else {
       currentSession()
         .then((session) => setUser(session.user))
