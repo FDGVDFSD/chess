@@ -56,7 +56,7 @@ set daily_challenge = jsonb_build_object(
 )
 where daily_challenge->>'lastDate' is null or daily_challenge->>'lastDate' = '';
 
-create unique index if not exists profiles_username_lower_uidx
+create unique index if not exists profiles_username_lower
   on public.profiles (lower(username));
 
 create or replace function public.handle_new_user()
@@ -105,21 +105,6 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
 after insert on auth.users
 for each row execute function public.handle_new_user();
-
-create or replace function public.is_owner()
-returns boolean
-language sql
-stable
-security definer
-set search_path = pg_catalog, public
-as $$
-  select exists(
-    select 1 from public.profiles
-    where id = auth.uid() and role = 'owner'
-  );
-$$;
-revoke all on function public.is_owner() from public, anon;
-grant execute on function public.is_owner() to authenticated;
 
 drop policy if exists profiles_self_edit on public.profiles;
 drop policy if exists profiles_self_read on public.profiles;
@@ -518,4 +503,60 @@ begin
   ) then
     alter publication supabase_realtime add table public.matchmaking_queue;
   end if;
+end $$;
+
+
+-- ---------------------------------------------------------------------------
+-- Advisor hardening / legacy isolation
+-- ---------------------------------------------------------------------------
+drop policy if exists audit_logs_no_client_access on public.audit_logs;
+create policy audit_logs_no_client_access
+  on public.audit_logs for all
+  to anon, authenticated
+  using (false)
+  with check (false);
+
+drop policy if exists puzzles_self_insert on public.puzzle_solves;
+drop policy if exists puzzles_self_read on public.puzzle_solves;
+create policy puzzles_self_insert
+  on public.puzzle_solves for insert
+  to authenticated
+  with check ((select auth.uid()) = user_id);
+create policy puzzles_self_read
+  on public.puzzle_solves for select
+  to authenticated
+  using ((select auth.uid()) = user_id);
+
+create index if not exists matchmaking_queue_matched_game_id_idx
+  on public.matchmaking_queue (matched_game_id);
+
+drop policy if exists game_channel_receive on realtime.messages;
+drop policy if exists game_channel_send on realtime.messages;
+
+drop function if exists public.apply_puzzle_result(boolean);
+drop function if exists public.get_leaderboard();
+drop function if exists public.is_owner();
+
+revoke all on schema arena from anon, authenticated;
+revoke all on all tables in schema arena from anon, authenticated;
+revoke all on all sequences in schema arena from anon, authenticated;
+revoke all on all functions in schema arena from anon, authenticated;
+
+do $$
+declare item record;
+begin
+  for item in
+    select cls.relname as table_name
+    from pg_class cls
+    join pg_namespace ns on ns.oid = cls.relnamespace
+    where ns.nspname = 'arena'
+      and cls.relkind in ('r','p')
+      and cls.relrowsecurity = true
+      and not exists (select 1 from pg_policy pol where pol.polrelid = cls.oid)
+  loop
+    execute format(
+      'create policy legacy_arena_no_client_access on arena.%I for all to anon, authenticated using (false) with check (false)',
+      item.table_name
+    );
+  end loop;
 end $$;
