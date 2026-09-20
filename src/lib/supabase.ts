@@ -1,14 +1,19 @@
 import { createClient } from "@supabase/supabase-js";
 
-const metaEnv = (import.meta as any).env || {};
-const supabaseUrl = metaEnv.VITE_SUPABASE_URL || "https://hulquvtadftsezwjthni.supabase.co";
-const supabaseAnonKey = metaEnv.VITE_SUPABASE_ANON_KEY || metaEnv.VITE_SUPABASE_PUBLISHABLE_KEY || "placeholder-anon-key";
+const metaEnv = import.meta.env;
+const supabaseUrl =
+  (metaEnv.VITE_SUPABASE_URL as string | undefined) ??
+  "https://hulquvtadftsezwjthni.supabase.co";
 
-export const isSupabaseConfigured = Boolean(
-  metaEnv.VITE_SUPABASE_URL && (metaEnv.VITE_SUPABASE_ANON_KEY || metaEnv.VITE_SUPABASE_PUBLISHABLE_KEY)
-);
+// Publishable keys are designed to be shipped to browsers. Never put a secret/service-role key here.
+const supabasePublishableKey =
+  (metaEnv.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined) ??
+  (metaEnv.VITE_SUPABASE_ANON_KEY as string | undefined) ??
+  "sb_publishable__I2Zi5gFYb4pUwG3IdMhTg_pOgHXS1j";
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+export const isSupabaseConfigured = Boolean(supabaseUrl && supabasePublishableKey);
+
+export const supabase = createClient(supabaseUrl, supabasePublishableKey, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
@@ -16,7 +21,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   },
   realtime: {
     params: {
-      eventsPerSecond: 10
+      eventsPerSecond: 20
     }
   }
 });
