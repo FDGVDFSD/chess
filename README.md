@@ -27,7 +27,7 @@
 
 ## 🚀 What is Chess Arena?
 
-**Chess Arena v2** is a complete chess platform built with **React, TypeScript, chess.js, Supabase, and Netlify**.
+**Chess Arena v2** is a modern full-stack chess platform built with **React, TypeScript, chess.js, Supabase, and Netlify**.
 
 It supports bot play, same-device matches, persistent online friend rooms, rating-based matchmaking, synchronized clocks, puzzles, openings, game history, player profiles, moderation tools, and owner-only J.A.R.V.I.S. assistance.
 
@@ -103,6 +103,27 @@ to: e4
 The protected backend verifies authentication, player identity, color, turn, clock state, move legality, and current game state before committing an online move.
 
 That means the browser cannot simply tell the database that it won.
+
+---
+
+## 🛡️ Privacy, Safety & Compliance
+
+Chess Arena includes practical launch safeguards rather than claiming legal certification:
+
+- Privacy Policy and Terms of Service
+- Cookie & browser-storage disclosure
+- first-use privacy/storage notice
+- explicit signup agreement to Terms + Privacy
+- 13+ account confirmation without collecting a full date of birth
+- no paid checkout or hidden-fee flow in the current release
+- account/data deletion from Settings
+- accessibility statement, skip links, visible keyboard focus, and reduced-motion controls
+- third-party dependency/license documentation
+- report/block/moderation tooling
+
+See **[COMPLIANCE.md](COMPLIANCE.md)** for the 20-point product checklist and **[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)** for core dependency/license notes.
+
+> These controls improve the product's privacy/safety posture but are not a guarantee of compliance with every law or jurisdiction.
 
 ---
 
@@ -350,6 +371,8 @@ Ideas, bug reports, testing feedback, and improvements are welcome.
 - 💻 **Repository:** [github.com/dvilrgamerz/chess](https://github.com/dvilrgamerz/chess)
 - 🐛 **Issues:** [GitHub Issues](https://github.com/dvilrgamerz/chess/issues)
 - 🔐 **Security:** [SECURITY.md](SECURITY.md)
+- 🛡️ **Compliance checklist:** [COMPLIANCE.md](COMPLIANCE.md)
+- 📜 **Third-party notices:** [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 
 ---
 
