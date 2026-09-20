@@ -182,6 +182,45 @@ export async function logout() {
   return { ok: true as const };
 }
 
+export async function initializePasswordRecoverySession() {
+  const url = new URL(window.location.href);
+  const query = url.searchParams;
+  const hash = new URLSearchParams(url.hash.replace(/^#/, ""));
+
+  const code = query.get("code");
+  const tokenHash = query.get("token_hash");
+  const queryType = query.get("type");
+  const accessToken = hash.get("access_token");
+  const refreshToken = hash.get("refresh_token");
+  const hashType = hash.get("type");
+
+  if (code) {
+    const { error } = await supabase.auth.exchangeCodeForSession(code);
+    if (error) throw new Error(error.message);
+  } else if (accessToken && refreshToken && hashType === "recovery") {
+    const { error } = await supabase.auth.setSession({
+      access_token: accessToken,
+      refresh_token: refreshToken
+    });
+    if (error) throw new Error(error.message);
+  } else if (tokenHash && queryType === "recovery") {
+    const { error } = await supabase.auth.verifyOtp({
+      token_hash: tokenHash,
+      type: "recovery"
+    } as any);
+    if (error) throw new Error(error.message);
+  }
+
+  const { data, error } = await supabase.auth.getSession();
+  if (error) throw new Error(error.message);
+  if (!data.session) {
+    throw new Error("This password-reset link is invalid, expired, or has already been used. Request a new reset email.");
+  }
+
+  setToken(data.session.access_token);
+  return { session: data.session };
+}
+
 export async function requestPasswordReset(email: string) {
   const cleanEmail = email.trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(cleanEmail)) {
@@ -202,10 +241,7 @@ export async function updateRecoveredPassword(password: string) {
     throw new Error("New password must be at least 8 characters.");
   }
 
-  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-  if (sessionError || !sessionData.session) {
-    throw new Error("This reset link is invalid or expired. Request a new password-reset email.");
-  }
+  await initializePasswordRecoverySession();
 
   const { error } = await supabase.auth.updateUser({ password });
   if (error) throw new Error(error.message);
