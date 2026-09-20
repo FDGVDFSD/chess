@@ -73,7 +73,7 @@ export function AuthPanel({ onAuthed }: AuthPanelProps) {
             </form>
           ) : (
             <form onSubmit={(event) => { event.preventDefault(); void submit(); }}>
-              <label>Email or username<span className="input-shell"><Mail size={16} /><input value={loginName} onChange={(event) => setLoginName(event.target.value)} autoComplete="username" required /></span></label>
+              <label>Email<span className="input-shell"><Mail size={16} /><input type="email" value={loginName} onChange={(event) => setLoginName(event.target.value)} autoComplete="email" required /></span></label>
               <label>Password<span className="input-shell"><Lock size={16} /><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required /></span></label>
               <button className="primary full" disabled={busy} type="submit">{busy ? "Signing in..." : "Log in"}</button>
             </form>

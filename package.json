@@ -4,24 +4,21 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node scripts/apply-bot-worker.mjs && concurrently -n SERVER,WEB -c cyan,green \"tsx watch server/index.ts\" \"vite --host 0.0.0.0\"",
-    "server": "tsx server/index.ts",
+    "dev": "node scripts/apply-bot-worker.mjs && vite --host 0.0.0.0",
+    "dev:legacy-server": "tsx watch server/index.ts",
+    "server:legacy": "tsx server/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "build": "node scripts/apply-bot-worker.mjs && vite build && tsc -p tsconfig.server.json",
-    "start": "node dist/server/server/index.js"
+    "build": "node scripts/apply-bot-worker.mjs && vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "start": "vite preview --host 0.0.0.0"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.57.0",
-    "@vitejs/plugin-react": "^5.0.0",
+    "@supabase/supabase-js": "^2.112.4",
     "chess.js": "^1.0.0",
-    "cors": "^2.8.5",
-    "express": "^4.19.2",
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "socket.io": "^4.8.1",
-    "socket.io-client": "^4.8.1"
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
@@ -29,7 +26,12 @@
     "@types/node": "^22.10.1",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^5.0.0",
     "concurrently": "^9.1.0",
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"

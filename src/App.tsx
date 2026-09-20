@@ -28,10 +28,19 @@ import {
   Wifi,
   Zap
 } from "lucide-react";
-import { io, type Socket } from "socket.io-client";
 import { getGameResult, sideFromTurn, tryMove } from "../shared/chess.js";
-import { selectBotMove } from "../shared/bot.js";
-import { analyzeWithJarvis } from "./lib/jarvisAI.js";
+import { isSupabaseConfigured } from "./lib/supabase.js";
+import {
+  createFriendRoomSupabase,
+  joinFriendRoomSupabase,
+  joinRandomMatchSupabase,
+  leaveRandomQueueSupabase,
+  onlineGameActionSupabase,
+  submitOnlineMoveSupabase,
+  subscribeToMatchmaking,
+  subscribeToOnlineGameRealtime,
+  syncRandomMatchSupabase
+} from "./lib/supabaseOnline.js";
 import type {
   Announcement,
   BoardTheme,
@@ -64,7 +73,6 @@ import {
   getAnnouncements,
   getHistory,
   getLeaderboard,
-  getToken,
   logout,
   saveGame,
   setToken,
@@ -80,6 +88,8 @@ import { OpeningsView } from "./components/OpeningsView.js";
 import { TournamentsView } from "./components/TournamentsView.js";
 import { ProfileView } from "./components/ProfileView.js";
 import { GameClock } from "./components/GameClock.js";
+import { useBotWorker } from "./lib/useBotWorker.js";
+import { useJarvisWorker } from "./lib/useJarvisWorker.js";
 
 type View =
   | "dashboard"
@@ -137,10 +147,6 @@ export function App() {
   const [analyzingGame, setAnalyzingGame] = useState<GameRecord | null>(null);
 
   useEffect(() => {
-    if (!getToken()) {
-      setLoading(false);
-      return;
-    }
     currentSession()
       .then((session) => setUser(session.user))
       .catch(() => setToken(null))
@@ -552,38 +558,37 @@ function BotGame({
   const chess = useMemo(() => new Chess(fen), [fen]);
   const turn = sideFromTurn(chess.turn());
 
+  const botEnabled = !outcome && turn !== playerColor && !chess.isGameOver();
+  const { move: workerMove, thinking: workerThinking } = useBotWorker(fen, level, botEnabled);
+
   useEffect(() => {
-    if (outcome || turn === playerColor || chess.isGameOver() || botThinkingRef.current) {
-      return;
-    }
-    botThinkingRef.current = true;
+    botThinkingRef.current = workerThinking;
+  }, [workerThinking]);
+
+  useEffect(() => {
+    if (!workerMove || !botEnabled) return;
 
     const timer = window.setTimeout(() => {
       const active = new Chess(fen);
-      const move = selectBotMove(active.fen(), level);
-      if (move) {
-        const made = active.move(move);
-        const nextMoves = [...moves, made.san];
-        setFen(active.fen());
-        setMoves(nextMoves);
-        setLastMove({ from: made.from, to: made.to, san: made.san });
+      if (active.turn() === (playerColor === "white" ? "w" : "b") || active.isGameOver()) return;
 
-        const soundType = detectMoveSound(active, made.from, made.to);
-        playSound(soundType, user.settings);
+      const made = active.move(workerMove);
+      if (!made) return;
 
-        const result = getGameResult(active);
-        if (result) {
-          finishGame(result.result, result.reason, active.fen(), nextMoves);
-        }
-      }
-      botThinkingRef.current = false;
+      const nextMoves = [...moves, made.san];
+      setFen(active.fen());
+      setMoves(nextMoves);
+      setLastMove({ from: made.from, to: made.to, san: made.san });
+
+      const soundType = detectMoveSound(active, made.from, made.to);
+      playSound(soundType, user.settings);
+
+      const result = getGameResult(active);
+      if (result) finishGame(result.result, result.reason, active.fen(), nextMoves);
     }, user.settings.botDelayMs);
 
-    return () => {
-      window.clearTimeout(timer);
-      botThinkingRef.current = false;
-    };
-  }, [fen, outcome, turn, playerColor, level, user.settings.botDelayMs]);
+    return () => window.clearTimeout(timer);
+  }, [workerMove, botEnabled, fen, moves, playerColor, user.settings.botDelayMs]);
 
   function newGame() {
     const fresh = new Chess();
@@ -870,18 +875,6 @@ function TwoPlayerGame({ user }: { user: PublicUser }) {
   );
 }
 
-interface OnlineAck {
-  ok: boolean;
-  error?: string;
-  queued?: boolean;
-  roomCode?: string;
-  gameId?: string;
-  playerColor?: Side;
-  snapshot?: GameSnapshot;
-}
-
-type ConnectionStatus = "connected" | "reconnecting" | "offline";
-
 function OnlineGame({
   user,
   onUserUpdate,
@@ -891,58 +884,25 @@ function OnlineGame({
   onUserUpdate: (u: PublicUser) => void;
   onReportPlayer: (target?: string) => void;
 }) {
-  const [socketReady, setSocketReady] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("offline");
-  const [message, setMessage] = useState("Connecting...");
+  const [connectionStatus, setConnectionStatus] = useState<"connected" | "reconnecting" | "offline">(
+    isSupabaseConfigured ? "connected" : "offline"
+  );
+  const [message, setMessage] = useState(isSupabaseConfigured ? "Supabase Realtime ready" : "Online service is not configured");
   const [snapshot, setSnapshot] = useState<GameSnapshot | null>(null);
   const [playerColor, setPlayerColor] = useState<Side | null>(null);
   const [preferredColor, setPreferredColor] = useState<Side>("white");
   const [joinCode, setJoinCode] = useState("");
   const [queued, setQueued] = useState(false);
-  const socketRef = useRef<Socket | null>(null);
+  const [timeControl, setTimeControl] = useState<TimeControl>(timeControlsList[2]);
   const gameEndSoundPlayed = useRef(false);
   const prevSnapshotRef = useRef<GameSnapshot | null>(null);
+  const stopGameSubscriptionRef = useRef<(() => void) | null>(null);
+  const stopQueueSubscriptionRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
-    const socket = io({
-      auth: { token: getToken() },
-      transports: ["websocket", "polling"]
-    });
-    socketRef.current = socket;
-
-    socket.on("connect", () => {
-      setSocketReady(true);
-      setConnectionStatus("connected");
-      setMessage("Online server ready");
-    });
-    socket.on("connect_error", (error) => {
-      setSocketReady(false);
-      setConnectionStatus("offline");
-      setMessage(error.message);
-    });
-    socket.on("disconnect", () => {
-      setSocketReady(false);
-      setConnectionStatus("offline");
-    });
-    socket.io.on("reconnect_attempt", () => {
-      setConnectionStatus("reconnecting");
-    });
-    socket.io.on("reconnect", () => {
-      setSocketReady(true);
-      setConnectionStatus("connected");
-      setMessage("Reconnected");
-    });
-    socket.on("game:update", (state: GameSnapshot) => applySnapshot(state));
-    socket.on("random:matched", (payload: { snapshot: GameSnapshot; playerColor: Side }) => {
-      setQueued(false);
-      setPlayerColor(payload.playerColor);
-      applySnapshot(payload.snapshot);
-      setMessage("Random match found");
-      playSound("gameStart", user.settings);
-    });
     return () => {
-      socket.disconnect();
-      socketRef.current = null;
+      stopGameSubscriptionRef.current?.();
+      stopQueueSubscriptionRef.current?.();
     };
   }, []);
 
@@ -952,20 +912,20 @@ function OnlineGame({
     if (prev && state.moves.length > prev.moves.length && state.status === "active") {
       const tempChess = new Chess();
       for (const san of state.moves) {
-        tempChess.move(san);
+        try {
+          tempChess.move(san);
+        } catch {
+          break;
+        }
       }
       if (tempChess.inCheck()) {
         playSound("check", user.settings);
       } else {
-        const lastEntry = tempChess.history({ verbose: true });
-        const last = lastEntry[lastEntry.length - 1];
-        if (last?.captured) {
-          playSound("capture", user.settings);
-        } else if (last?.flags.includes("k") || last?.flags.includes("q")) {
-          playSound("castle", user.settings);
-        } else {
-          playSound("move", user.settings);
-        }
+        const history = tempChess.history({ verbose: true });
+        const last = history[history.length - 1];
+        if (last?.captured) playSound("capture", user.settings);
+        else if (last?.flags.includes("k") || last?.flags.includes("q")) playSound("castle", user.settings);
+        else playSound("move", user.settings);
       }
     }
 
@@ -976,146 +936,251 @@ function OnlineGame({
 
     prevSnapshotRef.current = state;
     setSnapshot(state);
-
-    const color = state.players.white?.id === user.id ? "white" : state.players.black?.id === user.id ? "black" : null;
+    const color =
+      state.players.white?.id === user.id
+        ? "white"
+        : state.players.black?.id === user.id
+        ? "black"
+        : null;
     setPlayerColor(color);
   }
 
-  function emit(event: string, payload: unknown, onOk?: (ack: OnlineAck) => void) {
-    const socket = socketRef.current;
-    if (!socket) {
-      setMessage("Socket is not connected.");
-      return;
+  function watchGame(gameId: string) {
+    stopGameSubscriptionRef.current?.();
+    stopGameSubscriptionRef.current = subscribeToOnlineGameRealtime(
+      gameId,
+      applySnapshot,
+      (status) => {
+        if (status === "SUBSCRIBED") {
+          setConnectionStatus("connected");
+          setMessage("Live game synchronized");
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          setConnectionStatus("reconnecting");
+          setMessage("Realtime reconnecting...");
+        }
+      }
+    );
+  }
+
+  async function createRoom() {
+    try {
+      gameEndSoundPlayed.current = false;
+      const result = await createFriendRoomSupabase(user, preferredColor, timeControl);
+      setQueued(false);
+      setPlayerColor(result.playerColor);
+      applySnapshot(result.snapshot);
+      watchGame(result.gameId);
+      setMessage(`Room ${result.roomCode} is ready`);
+      playSound("gameStart", user.settings);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not create room.");
     }
-    socket.emit(event, payload, (ack: OnlineAck) => {
-      if (!ack.ok) {
-        setMessage(ack.error ?? "Online action failed.");
-        return;
-      }
-      if (ack.snapshot) {
-        applySnapshot(ack.snapshot);
-      }
-      if (ack.playerColor) {
-        setPlayerColor(ack.playerColor);
-      }
-      onOk?.(ack);
-    });
   }
 
-  function createRoom() {
-    emit("friend:create", { preferredColor }, (ack) => {
+  async function joinRoom() {
+    try {
+      gameEndSoundPlayed.current = false;
+      const result = await joinFriendRoomSupabase(user, joinCode);
       setQueued(false);
-      setMessage(`Room ${ack.roomCode} is ready`);
-    });
-  }
-
-  function joinRoom() {
-    emit("friend:join", { roomCode: joinCode }, () => {
-      setQueued(false);
+      setPlayerColor(result.playerColor);
+      applySnapshot(result.snapshot);
+      watchGame(result.gameId);
       setMessage("Joined friend room");
       playSound("gameStart", user.settings);
-    });
-  }
-
-  function joinRandom() {
-    emit("random:join", null, (ack) => {
-      setQueued(Boolean(ack.queued));
-      setMessage(ack.queued ? "Waiting for a random opponent" : "Random match found");
-    });
-  }
-
-  function leaveQueue() {
-    emit("random:leave", null, () => {
-      setQueued(false);
-      setMessage("Left random queue");
-    });
-  }
-
-  function handleOnlineMove(move: { from: string; to: string; promotion?: string }) {
-    if (!snapshot) return;
-    const tempChess = new Chess(snapshot.fen);
-    const made = tryMove(tempChess, move.from, move.to, move.promotion ?? "q");
-    if (made) {
-      const soundType = detectMoveSound(tempChess, move.from, move.to);
-      playSound(soundType, user.settings);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not join room.");
     }
-    emit("game:move", { gameId: snapshot.id, ...move });
   }
 
-  function handleRematch() {
+  async function syncQueuedMatch() {
+    try {
+      const result = await syncRandomMatchSupabase();
+      if (!result.snapshot || !result.gameId || !result.playerColor) return;
+      setQueued(false);
+      stopQueueSubscriptionRef.current?.();
+      stopQueueSubscriptionRef.current = null;
+      setPlayerColor(result.playerColor);
+      applySnapshot(result.snapshot);
+      watchGame(result.gameId);
+      setMessage("Random match found");
+      playSound("gameStart", user.settings);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not sync matchmaking.");
+    }
+  }
+
+  async function joinRandom() {
+    try {
+      gameEndSoundPlayed.current = false;
+      const result = await joinRandomMatchSupabase(user.rating, preferredColor, timeControl);
+      if (result.queued) {
+        setQueued(true);
+        setMessage("Waiting for a similarly rated opponent...");
+        stopQueueSubscriptionRef.current?.();
+        stopQueueSubscriptionRef.current = subscribeToMatchmaking(user.id, () => {
+          void syncQueuedMatch();
+        });
+        return;
+      }
+
+      if (result.snapshot && result.gameId && result.playerColor) {
+        setQueued(false);
+        setPlayerColor(result.playerColor);
+        applySnapshot(result.snapshot);
+        watchGame(result.gameId);
+        setMessage("Random match found");
+        playSound("gameStart", user.settings);
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not join matchmaking.");
+    }
+  }
+
+  async function leaveQueue() {
+    try {
+      await leaveRandomQueueSupabase();
+      stopQueueSubscriptionRef.current?.();
+      stopQueueSubscriptionRef.current = null;
+      setQueued(false);
+      setMessage("Left matchmaking queue");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not leave queue.");
+    }
+  }
+
+  async function handleOnlineMove(move: { from: string; to: string; promotion?: string }) {
+    if (!snapshot || snapshot.status !== "active") return;
+    try {
+      const updated = await submitOnlineMoveSupabase(
+        snapshot.id,
+        move.from,
+        move.to,
+        move.promotion ?? "q"
+      );
+      applySnapshot(updated);
+    } catch (error) {
+      playSound("invalid", user.settings);
+      setMessage(error instanceof Error ? error.message : "Move was rejected.");
+    }
+  }
+
+  async function handleGameAction(action: "resign" | "draw_offer" | "draw_accept" | "rematch" | "flag_timeout") {
     if (!snapshot) return;
-    gameEndSoundPlayed.current = false;
-    emit("game:rematch", { gameId: snapshot.id });
+    try {
+      const result = await onlineGameActionSupabase(action, snapshot.id);
+      if (action === "rematch") {
+        gameEndSoundPlayed.current = false;
+        if (result.gameId) watchGame(result.gameId);
+        if (result.playerColor) setPlayerColor(result.playerColor);
+      }
+      applySnapshot(result.snapshot);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Online action failed.");
+    }
   }
 
   async function handleToggleBlock(opponentUsername: string) {
     try {
       const res = await blockPlayer(opponentUsername);
       onUserUpdate(res.user);
-    } catch (err) {
-      setMessage(err instanceof Error ? err.message : "Could not block player.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not block player.");
     }
   }
 
   const moves = snapshot?.moves ?? [];
   const turn = snapshot?.turn ?? "white";
   const waiting = snapshot?.status === "waiting";
-  const canAcceptDraw = Boolean(snapshot?.drawOfferFrom && snapshot.drawOfferFrom !== playerColor && snapshot.status === "active");
-
-  const connectionLabel = connectionStatus === "connected" ? "Connected" : connectionStatus === "reconnecting" ? "Reconnecting" : "Offline";
-
+  const canAcceptDraw = Boolean(
+    snapshot?.drawOfferFrom &&
+      snapshot.drawOfferFrom !== playerColor &&
+      snapshot.status === "active"
+  );
   const opponentSeat = playerColor === "white" ? snapshot?.players.black : snapshot?.players.white;
-  const isOpponentBlocked = Boolean(opponentSeat?.username && user.blockedUsers?.includes(opponentSeat.username));
+  const isOpponentBlocked = Boolean(
+    opponentSeat?.username && user.blockedUsers?.includes(opponentSeat.username)
+  );
 
   return (
     <section className="play-screen">
       <div className="toolbar">
         <div>
-          <span className="eyebrow">Online Server</span>
-          <h1>Friend and random games</h1>
+          <span className="eyebrow">Supabase Realtime</span>
+          <h1>Friend rooms and matchmaking</h1>
         </div>
         <div className="toolbar-actions">
           <div className="connection-indicator">
             <span className={`connection-dot ${connectionStatus}`} />
-            {connectionLabel}
+            {connectionStatus === "connected"
+              ? "Connected"
+              : connectionStatus === "reconnecting"
+              ? "Reconnecting"
+              : "Offline"}
           </div>
-          <span className={socketReady ? "status-pill online" : "status-pill"}>{message}</span>
+          <span className="status-pill online">{message}</span>
         </div>
       </div>
 
       <div className="online-controls">
         <div className="control-group">
+          <select
+            className="setting-item select inline-select"
+            value={timeControl.id}
+            disabled={queued || Boolean(snapshot && snapshot.status !== "complete")}
+            onChange={(event) => {
+              const selected = timeControlsList.find((item) => item.id === event.target.value);
+              if (selected) setTimeControl(selected);
+            }}
+          >
+            {timeControlsList.filter((item) => item.category !== "unlimited").map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name}
+              </option>
+            ))}
+          </select>
           <div className="segmented small">
-            <button className={preferredColor === "white" ? "active" : ""} onClick={() => setPreferredColor("white")}>
+            <button
+              className={preferredColor === "white" ? "active" : ""}
+              onClick={() => setPreferredColor("white")}
+            >
               White
             </button>
-            <button className={preferredColor === "black" ? "active" : ""} onClick={() => setPreferredColor("black")}>
+            <button
+              className={preferredColor === "black" ? "active" : ""}
+              onClick={() => setPreferredColor("black")}
+            >
               Black
             </button>
           </div>
-          <button className="primary" disabled={!socketReady} onClick={createRoom}>
+          <button className="primary" disabled={!isSupabaseConfigured || queued} onClick={createRoom}>
             Create room
           </button>
         </div>
+
         <div className="control-group">
           <input
             className="code-input"
-            placeholder="ROOM"
-            maxLength={5}
+            placeholder="ROOM CODE"
+            maxLength={6}
             value={joinCode}
             onChange={(event) => setJoinCode(event.target.value.toUpperCase())}
           />
-          <button className="secondary" disabled={!socketReady || joinCode.length < 5} onClick={joinRoom}>
+          <button
+            className="secondary"
+            disabled={!isSupabaseConfigured || queued || joinCode.length !== 6}
+            onClick={joinRoom}
+          >
             Join
           </button>
         </div>
+
         <div className="control-group">
           {queued ? (
             <button className="danger" onClick={leaveQueue}>
               Leave queue
             </button>
           ) : (
-            <button className="primary" disabled={!socketReady} onClick={joinRandom}>
+            <button className="primary" disabled={!isSupabaseConfigured} onClick={joinRandom}>
               Random match
             </button>
           )}
@@ -1131,24 +1196,47 @@ function OnlineGame({
           settings={user.settings}
           orientation={playerColor ?? "white"}
           interactiveSide={snapshot.status === "active" ? playerColor : null}
+          timeControl={snapshot.timeControl}
+          whiteTimeRemainingMs={snapshot.whiteTimeRemainingMs}
+          blackTimeRemainingMs={snapshot.blackTimeRemainingMs}
+          turnStartedAt={snapshot.turnStartedAt}
+          onTimeout={() => void handleGameAction("flag_timeout")}
           onMove={handleOnlineMove}
           white={snapshot.players.white ?? { username: "Waiting", kind: "guest" }}
           black={snapshot.players.black ?? { username: "Waiting", kind: "guest" }}
-          status={waiting ? `Room ${snapshot.roomCode} waiting` : snapshot.result ? formatResult(snapshot.result, snapshot.reason) : `${title(turn)} to move`}
+          status={
+            waiting
+              ? `Room ${snapshot.roomCode} waiting`
+              : snapshot.result
+              ? formatResult(snapshot.result, snapshot.reason)
+              : `${title(turn)} to move`
+          }
           actions={
             <>
-              <button className="danger" disabled={snapshot.status !== "active"} onClick={() => emit("game:resign", { gameId: snapshot.id })}>
+              <button
+                className="danger"
+                disabled={snapshot.status !== "active"}
+                onClick={() => void handleGameAction("resign")}
+              >
                 Resign
               </button>
-              <button className="secondary" disabled={snapshot.status !== "active"} onClick={() => emit("game:draw-offer", { gameId: snapshot.id })}>
+              <button
+                className="secondary"
+                disabled={snapshot.status !== "active"}
+                onClick={() => void handleGameAction("draw_offer")}
+              >
                 Offer draw
               </button>
               {canAcceptDraw ? (
-                <button className="primary" onClick={() => emit("game:draw-accept", { gameId: snapshot.id })}>
+                <button className="primary" onClick={() => void handleGameAction("draw_accept")}>
                   Accept draw
                 </button>
               ) : null}
-              <button className="secondary" disabled={snapshot.status !== "complete"} onClick={handleRematch}>
+              <button
+                className="secondary"
+                disabled={snapshot.status !== "complete"}
+                onClick={() => void handleGameAction("rematch")}
+              >
                 Rematch
               </button>
             </>
@@ -1159,20 +1247,24 @@ function OnlineGame({
                 <button className="text-btn danger-text" onClick={() => onReportPlayer(opponentSeat.username)}>
                   <AlertTriangle size={14} /> Report {opponentSeat.username}
                 </button>
-                <button className="text-btn" onClick={() => handleToggleBlock(opponentSeat.username)}>
+                <button className="text-btn" onClick={() => void handleToggleBlock(opponentSeat.username)}>
                   <UserX size={14} /> {isOpponentBlocked ? "Unblock" : "Block"} {opponentSeat.username}
                 </button>
               </div>
             ) : null
           }
-          result={snapshot.result ? { result: snapshot.result, reason: snapshot.reason ?? "manual" } : null}
+          result={
+            snapshot.result
+              ? { result: snapshot.result, reason: snapshot.reason ?? "manual" }
+              : null
+          }
           footer={playerColor ? `You are playing as ${playerColor}` : ""}
         />
       ) : (
         <div className="empty-state">
           <Wifi size={38} />
           <strong>Start or join a game</strong>
-          <span>Friend rooms and random matches work between browsers connected to this server.</span>
+          <span>Rooms and matchmaking are persisted in Supabase, so reconnecting does not erase the game.</span>
         </div>
       )}
     </section>
@@ -1188,6 +1280,9 @@ function GameLayout({
   orientation,
   interactiveSide,
   timeControl,
+  whiteTimeRemainingMs,
+  blackTimeRemainingMs,
+  turnStartedAt,
   onTimeout,
   onMove,
   white,
@@ -1206,6 +1301,9 @@ function GameLayout({
   orientation: Side;
   interactiveSide: Side | "both" | null;
   timeControl?: TimeControl;
+  whiteTimeRemainingMs?: number;
+  blackTimeRemainingMs?: number;
+  turnStartedAt?: string;
   onTimeout?: (flaggedSide: Side) => void;
   onMove: (move: { from: string; to: string; promotion?: string }) => void;
   white: PlayerSeat;
@@ -1224,12 +1322,7 @@ function GameLayout({
   const activeClockSide = result ? null : interactiveSide === "both" ? turn : interactiveSide;
 
   // Calculate J.A.R.V.I.S. calculation & overlay for Owner
-  const jarvisAnalysis = useMemo(() => {
-    if (user.role === "owner" && !result) {
-      return analyzeWithJarvis(fen);
-    }
-    return null;
-  }, [user.role, fen, result]);
+  const { result: jarvisAnalysis } = useJarvisWorker(fen, user.role === "owner" && !result);
 
   return (
     <div className="game-layout">
@@ -1261,6 +1354,9 @@ function GameLayout({
         <GameClock
           timeControl={timeControl}
           activeSide={activeClockSide}
+          whiteMsRemaining={whiteTimeRemainingMs}
+          blackMsRemaining={blackTimeRemainingMs}
+          turnStartedAt={turnStartedAt}
           onTimeout={onTimeout}
           disabled={Boolean(result)}
         />
