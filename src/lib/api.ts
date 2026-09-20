@@ -234,23 +234,7 @@ export async function blockPlayer(targetUsername: string) {
 }
 
 export async function getLeaderboard() {
-  const { data, error } = await supabase.rpc("get_leaderboard");
-  if (error) throw new Error(error.message);
-
-  const rows: LeaderboardRow[] = (data ?? []).map((row: any) => ({
-    userId: row.user_id,
-    username: row.username,
-    role: row.role === "owner" ? "owner" : "user",
-    rating: Number(row.rating ?? 1000),
-    formatRatings: row.format_ratings ?? { bullet: 1000, blitz: 1000, rapid: 1000 },
-    puzzleRating: Number(row.puzzle_rating ?? 1200),
-    wins: Number(row.wins ?? 0),
-    losses: Number(row.losses ?? 0),
-    draws: Number(row.draws ?? 0),
-    gamesPlayed: Number(row.games_played ?? 0)
-  }));
-
-  return { rows };
+  return invokeSecure<{ rows: LeaderboardRow[] }>({ action: "leaderboard" });
 }
 
 function rowToGame(row: any): GameRecord {
@@ -348,9 +332,11 @@ export async function getAnnouncements() {
 
 export async function submitPuzzleSolve(success = true) {
   const authUser = await getAuthUser();
-  const { data, error } = await supabase.rpc("apply_puzzle_result", { p_success: success });
-  if (error) throw new Error(error.message);
-  return { user: profileToUser(data, authUser.email ?? "") };
+  const data = await invokeSecure<{ user: any }>({
+    action: "puzzle_result",
+    success
+  });
+  return { user: profileToUser(data.user, authUser.email ?? "") };
 }
 
 export async function verifyOwnerPassword(password: string) {
