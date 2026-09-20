@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Calendar, Crown, Eye, EyeOff, Lock, Mail, Shield, UserPlus } from "lucide-react";
+import { Crown, Eye, EyeOff, Lock, Mail, Shield, UserPlus } from "lucide-react";
 import { login, requestPasswordReset, setToken, signup, updateRecoveredPassword } from "../lib/api.js";
 import type { PublicUser } from "../../shared/types.js";
 import { PolicyModals, type PolicyModalType } from "./PolicyModals.js";
@@ -14,7 +14,6 @@ interface AuthPanelProps {
 export function AuthPanel({ onAuthed, passwordRecovery = false, onRecoveryComplete }: AuthPanelProps) {
   const [mode, setMode] = useState<"login" | "signup" | "forgot" | "recovery">(passwordRecovery ? "recovery" : "signup");
   const [signupStep, setSignupStep] = useState<1 | 2 | 3>(1);
-  const [birthYear, setBirthYear] = useState<number>(2005);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [username, setUsername] = useState("");
@@ -29,7 +28,7 @@ export function AuthPanel({ onAuthed, passwordRecovery = false, onRecoveryComple
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [acceptedPolicies, setAcceptedPolicies] = useState(false);
-  const currentYear = new Date().getFullYear();
+  const [confirmedAge13Plus, setConfirmedAge13Plus] = useState(false);
 
   useEffect(() => {
     if (passwordRecovery) {
@@ -38,7 +37,6 @@ export function AuthPanel({ onAuthed, passwordRecovery = false, onRecoveryComple
       setSuccess("");
     }
   }, [passwordRecovery]);
-  const isUnder13 = birthYear > currentYear - 13;
 
   async function submit() {
     setError("");
@@ -74,8 +72,7 @@ export function AuthPanel({ onAuthed, passwordRecovery = false, onRecoveryComple
     }
     if (mode === "signup") {
       if (signupStep === 1) {
-        if (!birthYear || birthYear < 1920 || birthYear > currentYear) { setError("Please select a valid birth year."); return; }
-        if (isUnder13) { setError("Chess Arena accounts are currently available to users age 13 or older."); return; }
+        if (!confirmedAge13Plus) { setError("You must confirm that you are at least 13 years old to create an account."); return; }
         setSignupStep(2); return;
       }
       if (signupStep === 2) {
@@ -90,7 +87,7 @@ export function AuthPanel({ onAuthed, passwordRecovery = false, onRecoveryComple
     }
     setBusy(true);
     try {
-      const result = mode === "signup" ? await signup(email, password, username, birthYear) : await login(loginName || email, password);
+      const result = mode === "signup" ? await signup(email, password, username) : await login(loginName || email, password);
       setToken(result.token);
       onAuthed(result.user);
     } catch (err) {
@@ -149,7 +146,7 @@ export function AuthPanel({ onAuthed, passwordRecovery = false, onRecoveryComple
           ) : mode === "signup" ? (
             <form onSubmit={(event) => { event.preventDefault(); void submit(); }}>
               <div className="step-row"><span className={signupStep === 1 ? "step active" : "step"}>1</span><span className={signupStep === 2 ? "step active" : "step"}>2</span><span className={signupStep === 3 ? "step active" : "step"}>3</span></div>
-              {signupStep === 1 && <><label>Select Birth Year<span className="input-shell"><Calendar size={16} /><select value={birthYear} onChange={(e) => setBirthYear(Number(e.target.value))} className="setting-item select inline-select">{Array.from({ length: 90 }, (_, i) => currentYear - i).map((yr) => <option key={yr} value={yr}>{yr}</option>)}</select></span></label><p className="muted text-sm">Chess Arena accounts are currently for users age 13+.</p>{isUnder13 && <div className="age-notice"><Shield size={16} /><span><strong>Age requirement:</strong> You must be at least 13 years old to create a Chess Arena account.</span></div>}</>}
+              {signupStep === 1 && <><div className="age-notice"><Shield size={16} /><span><strong>Age requirement:</strong> Chess Arena accounts are currently for users age 13 or older. We do not need your full date of birth.</span></div><label className="consent-row"><input type="checkbox" checked={confirmedAge13Plus} onChange={(event) => setConfirmedAge13Plus(event.target.checked)} required /><span>I confirm that I am at least 13 years old.</span></label></>}
               {signupStep === 2 && <><label>Email<span className="input-shell"><Mail size={16} /><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></span></label><label>Password<span className="input-shell"><Lock size={16} /><input type={showPassword ? "text" : "password"} minLength={6} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" required /><button className="password-toggle" type="button" onClick={() => setShowPassword((show) => !show)} aria-label={showPassword ? "Hide password" : "Show password"} title={showPassword ? "Hide password" : "Show password"}>{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button></span></label></>}
               {signupStep === 3 && <><label>Username<span className="input-shell"><Crown size={16} /><input value={username} pattern="[a-zA-Z0-9_ ]{3,18}" onChange={(event) => setUsername(event.target.value)} placeholder="e.g. GrandmasterFlex" required /></span></label><label className="consent-row"><input type="checkbox" checked={acceptedPolicies} onChange={(event) => setAcceptedPolicies(event.target.checked)} required /><span>I agree to the <button type="button" className="inline-policy-link" onClick={() => setPolicyModal("terms")}>Terms of Service</button> and <button type="button" className="inline-policy-link" onClick={() => setPolicyModal("privacy")}>Privacy Policy</button>.</span></label></>}
               <div className="auth-btn-row">{signupStep > 1 && <button className="secondary" type="button" onClick={() => setSignupStep((prev) => (prev - 1) as 1 | 2)}>Back</button>}<button className="primary full" disabled={busy} type="submit">{signupStep < 3 ? "Next" : busy ? "Creating Account..." : "Create Account"}</button></div>
